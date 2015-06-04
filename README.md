@@ -1,83 +1,42 @@
-## Lealone名字的由来
 
-Lealone 发音 ['li:ləʊn]
-这是我新造的英文单词，灵感来自于在淘宝工作期间办公桌上那些叫绿萝的室内植物，一直想做个项目以它命名。 
-绿萝的拼音是lv luo，与Lealone英文发音有点相同，
-Lealone是lea + lone的组合(lea 草地/草原, lone 孤独的)，也算是现在的心境：思路辽阔但又孤独。
-反过来念更有意思。
+### Lealone是什么
 
-## Lealone是什么
-
-* 是一个可用于HBase的分布式SQL引擎
-
-* 支持高性能的分布式事务，使用一个非常新颖的 **基于局部时间戳的多版本冲突与有效性检测的事务模型**
-
-* 是对[H2关系数据库](http://www.h2database.com/html/main.html)SQL引擎的改进和扩展
+* 是一个面向[OLTP](http://en.wikipedia.org/wiki/Online_transaction_processing)场景的分布式关系数据库
 
 
+### Lealone有哪些特性
 
-## 有哪些特性
+* 去中心化集群架构，没有单点故障
 
-* 支持MySQL、PostgreSQL的SQL语法
+* 支持分片(Sharding)、复制
 
-* 支持JDBC 4.0规范
+* 强一制性，支持ACID、高性能分布式事务<br>
+  使用一种非常新颖的[基于局部时间戳的多版本冲突与有效性检测的分布式事务模型](https://github.com/codefollower/Lealone/blob/master/docs/%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/%E5%88%86%E5%B8%83%E5%BC%8F%E4%BA%8B%E5%8A%A1%E6%A8%A1%E5%9E%8B.md)
+ 
+* 插件化存储引擎架构，内置[WiredTiger](https://github.com/wiredtiger/wiredtiger/tree/develop)和[MVStore](http://www.h2database.com/html/mvstore.html)存储引擎
 
-* 支持分布式事务、索引、各种DDL，支持触发器、自定义函数、视图、Join、子查询、Order By、Group By、聚合
+* 插件化事务引擎架构，事务处理逻辑与存储分离，内置一个支持MVCC的事务引擎
 
+* SQL语法类似MySQL、PostgreSQL，支持索引、视图、Join、子查询 <br>
+  支持触发器、自定义函数、Order By、Group By、聚合
 
-## 运行需要
-
-* HBase 0.94.2 或更高 (只支持0.94系列版本)
-* JDK 6 或更高 (JDK 7未测试)
-
-
-## 构建需要
-
-* HBase 0.94.2 或更高 (只支持0.94系列版本)
-* JDK 6 (不支持JDK 7)
-* Maven 2或更高
+* 从[H2数据库](http://www.h2database.com/html/main.html)和[Apache Cassandra](http://cassandra.apache.org/)借鉴了大量成熟的代码和思想
 
 
-## 安装配置
+### Lealone文档
 
-* [Lealone安装配置](https://github.com/codefollower/Lealone/wiki/Lealone%E5%AE%89%E8%A3%85%E9%85%8D%E7%BD%AE)
-
-
-## 快速入门
-* [Lealone快速入门](https://github.com/codefollower/Lealone/wiki/Lealone%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8)
+* [文档首页](https://github.com/codefollower/Lealone/blob/master/docs/README.md)
 
 
-## 开发测试环境搭建
+### Lealone名字的由来
 
-* [Lealone开发测试环境搭建](https://github.com/codefollower/Lealone/wiki/Lealone%E5%BC%80%E5%8F%91%E6%B5%8B%E8%AF%95%E7%8E%AF%E5%A2%83%E6%90%AD%E5%BB%BA)
-
-
-## 使用文档
-
-* [Lealone使用文档](https://github.com/codefollower/Lealone/wiki/Lealone%E4%BD%BF%E7%94%A8%E6%96%87%E6%A1%A3)
+* Lealone 发音 ['li:ləʊn] 这是我新造的英文单词， <br>
+  灵感来自于办公桌上那些叫绿萝的室内植物，一直想做个项目以它命名。 <br>
+  绿萝的拼音是lv luo，与Lealone英文发音有点相同，<br>
+  Lealone是lea + lone的组合，反过来念更有意思哦。:)
 
 
-## 开发文档
+### Lealone License
 
-* [Lealone开发文档](https://github.com/codefollower/Lealone/wiki/Lealone%E5%BC%80%E5%8F%91%E6%96%87%E6%A1%A3)
+* [License](https://github.com/codefollower/Lealone/blob/master/LICENSE.md)
 
-
-## Roadmap
-
-* Join、子查询、索引性能优化
-
-
-## Package
-
-mvn clean package assembly:assembly -Dmaven.test.skip=true
-
-
-## License
-
-下面4个子工程中的代码使用[H2数据库的License](http://www.h2database.com/html/license.html)
-* lealone-client
-* lealone-mvstore
-* lealone-pagestore
-* lealone-sql
-
-除此之外的代码使用[Apache License Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
