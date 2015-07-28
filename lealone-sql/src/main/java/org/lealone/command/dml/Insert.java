@@ -37,8 +37,8 @@ public class Insert extends Prepared implements ResultTarget, InsertOrMerge {
 
     protected Table table;
     protected Column[] columns;
-    //TODO
-    //protected Expression[] first; //大多数情况下每次都只有一条记录
+    // TODO
+    // protected Expression[] first; //大多数情况下每次都只有一条记录
     protected ArrayList<Expression[]> list = New.arrayList();
     protected Query query;
     protected boolean sortedInsertMode;
@@ -92,20 +92,20 @@ public class Insert extends Prepared implements ResultTarget, InsertOrMerge {
      * @param expr the list of values
      */
     public void addRow(Expression[] expr) {
-        //        if (first == null)
-        //            first = expr;
-        //        else {
-        //            if (list == null)
-        //                list = New.arrayList();
-        //            list.add(expr);
-        //        }
+        // if (first == null)
+        // first = expr;
+        // else {
+        // if (list == null)
+        // list = New.arrayList();
+        // list.add(expr);
+        // }
 
         list.add(expr);
     }
 
     @Override
     public int update() {
-        //在集群模式下使用query时先不创建行，这会导致从其他表中把记录取过来
+        // 在集群模式下使用query时先不创建行，这会导致从其他表中把记录取过来
         if (query == null || isLocal())
             createRows();
         return Session.getRouter().executeInsert(this);
@@ -205,7 +205,7 @@ public class Insert extends Prepared implements ResultTarget, InsertOrMerge {
         return rowNumber;
     }
 
-    //子类有可能要用rowId
+    // 子类有可能要用rowId
     protected Row createRow(Expression[] expr, int rowId) {
         Row row = table.getTemplateRow();
         for (int i = 0, len = columns.length; i < len; i++) {
@@ -378,8 +378,11 @@ public class Insert extends Prepared implements ResultTarget, InsertOrMerge {
         return true;
     }
 
+    @Override
     public boolean isBatch() {
-        return query != null || list.size() > 1; // || table.doesSecondaryIndexExist();
+        // 因为GlobalUniqueIndex是通过独立的唯一索引表实现的，如果包含GlobalUniqueIndex，
+        // 那么每次往主表中增加一条记录时，都会同时往唯一索引表中加一条记录，所以也是批量的
+        return (query != null && query.isBatchForInsert()) || list.size() > 1 || table.containsGlobalUniqueIndex();
     }
 
     public Query getQuery() {
@@ -391,5 +394,15 @@ public class Insert extends Prepared implements ResultTarget, InsertOrMerge {
         super.setLocal(local);
         if (query != null)
             query.setLocal(local);
+    }
+
+    @Override
+    public List<Long> getRowVersions() {
+        if (rows == null)
+            return null;
+        ArrayList<Long> list = new ArrayList<>(rows.size());
+        for (Row row : rows)
+            list.add(table.getRowVersion(row.getKey()));
+        return list;
     }
 }

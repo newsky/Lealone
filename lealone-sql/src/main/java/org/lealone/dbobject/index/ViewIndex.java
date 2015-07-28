@@ -86,21 +86,6 @@ public class ViewIndex extends IndexBase {
         return planSQL;
     }
 
-    @Override
-    public void close(Session session) {
-        // nothing to do
-    }
-
-    @Override
-    public void add(Session session, Row row) {
-        throw DbException.getUnsupportedException("VIEW");
-    }
-
-    @Override
-    public void remove(Session session, Row row) {
-        throw DbException.getUnsupportedException("VIEW");
-    }
-
     /**
      * A calculated cost value.
      */
@@ -118,7 +103,7 @@ public class ViewIndex extends IndexBase {
     }
 
     @Override
-    public synchronized double getCost(Session session, int[] masks, SortOrder sortOrder) {
+    public synchronized double getCost(Session session, int[] masks, TableFilter filter, SortOrder sortOrder) {
         if (recursive) {
             return 1000;
         }
@@ -172,15 +157,6 @@ public class ViewIndex extends IndexBase {
     }
 
     @Override
-    public Cursor find(TableFilter filter, SearchRow first, SearchRow last) {
-        if (query != null) {
-            for (TableFilter f : query.getTopFilters())
-                f.setPrepared(filter.getPrepared());
-        }
-        return find(filter.getSession(), first, last);
-    }
-
-    @Override
     public Cursor find(Session session, SearchRow first, SearchRow last) {
         if (recursive) {
             ResultInterface recResult = view.getRecursiveResult();
@@ -222,6 +198,11 @@ public class ViewIndex extends IndexBase {
                 }
                 r.reset();
                 view.setRecursiveResult(r);
+
+                // 避免死循环，因为此时union all的右边子句不是当前view
+                if (!right.getTables().contains(view)) {
+                    break;
+                }
             }
             view.setRecursiveResult(null);
             result.done();
@@ -247,20 +228,15 @@ public class ViewIndex extends IndexBase {
         int idx = originalParameters == null ? 0 : originalParameters.size();
         idx += view.getParameterOffset();
         for (int i = 0; i < len; i++) {
-            if (first != null) {
-                Value v = first.getValue(i);
-                if (v != null) {
-                    int x = idx++;
-                    setParameter(paramList, x, v);
-                }
+            int mask = indexMasks[i];
+            if ((mask & IndexCondition.EQUALITY) != 0) {
+                setParameter(paramList, idx++, first.getValue(i));
             }
-            // for equality, only one parameter is used (first == last)
-            if (last != null && indexMasks[i] != IndexCondition.EQUALITY) {
-                Value v = last.getValue(i);
-                if (v != null) {
-                    int x = idx++;
-                    setParameter(paramList, x, v);
-                }
+            if ((mask & IndexCondition.START) != 0) {
+                setParameter(paramList, idx++, first.getValue(i));
+            }
+            if ((mask & IndexCondition.END) != 0) {
+                setParameter(paramList, idx++, last.getValue(i));
             }
         }
         ResultInterface result = query.query(0);
@@ -359,36 +335,6 @@ public class ViewIndex extends IndexBase {
         return q;
     }
 
-    @Override
-    public void remove(Session session) {
-        throw DbException.getUnsupportedException("VIEW");
-    }
-
-    @Override
-    public void truncate(Session session) {
-        throw DbException.getUnsupportedException("VIEW");
-    }
-
-    @Override
-    public void checkRename() {
-        throw DbException.getUnsupportedException("VIEW");
-    }
-
-    @Override
-    public boolean needRebuild() {
-        return false;
-    }
-
-    @Override
-    public boolean canGetFirstOrLast() {
-        return false;
-    }
-
-    @Override
-    public Cursor findFirstOrLast(Session session, boolean first) {
-        throw DbException.getUnsupportedException("VIEW");
-    }
-
     public void setRecursive(boolean value) {
         this.recursive = value;
     }
@@ -400,11 +346,6 @@ public class ViewIndex extends IndexBase {
 
     @Override
     public long getRowCountApproximation() {
-        return 0;
-    }
-
-    @Override
-    public long getDiskSpaceUsed() {
         return 0;
     }
 

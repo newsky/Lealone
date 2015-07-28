@@ -1,7 +1,6 @@
 /*
- * Copyright 2004-2013 H2 Group. Multiple-Licensed under the H2 License,
- * Version 1.0, and under the Eclipse Public License, Version 1.0
- * (http://h2database.com/html/license.html).
+ * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (http://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.lealone.dbobject.constraint;
@@ -36,6 +35,7 @@ public class ConstraintCheck extends Constraint {
         super(schema, id, name, table);
     }
 
+    @Override
     public String getConstraintType() {
         return Constraint.CHECK;
     }
@@ -48,6 +48,7 @@ public class ConstraintCheck extends Constraint {
         this.expr = expr;
     }
 
+    @Override
     public String getCreateSQLForCopy(Table forTable, String quotedName) {
         StringBuilder buff = new StringBuilder("ALTER TABLE ");
         buff.append(forTable.getSQL()).append(" ADD CONSTRAINT ");
@@ -66,14 +67,17 @@ public class ConstraintCheck extends Constraint {
         return getName() + ": " + expr.getSQL();
     }
 
+    @Override
     public String getCreateSQLWithoutIndexes() {
         return getCreateSQL();
     }
 
+    @Override
     public String getCreateSQL() {
         return getCreateSQLForCopy(table, getSQL());
     }
 
+    @Override
     public void removeChildrenAndResources(Session session) {
         table.removeConstraint(this);
         database.removeMeta(session, getId());
@@ -83,25 +87,35 @@ public class ConstraintCheck extends Constraint {
         invalidate();
     }
 
+    @Override
     public void checkRow(Session session, Table t, Row oldRow, Row newRow) {
         if (newRow == null) {
             return;
         }
         filter.set(newRow);
+        Boolean b;
+        try {
+            b = expr.getValue(session).getBoolean();
+        } catch (DbException ex) {
+            throw DbException.get(ErrorCode.CHECK_CONSTRAINT_INVALID, ex, getShortDescription());
+        }
         // Both TRUE and NULL are ok
-        if (Boolean.FALSE.equals(expr.getValue(session).getBoolean())) {
+        if (Boolean.FALSE.equals(b)) {
             throw DbException.get(ErrorCode.CHECK_CONSTRAINT_VIOLATED_1, getShortDescription());
         }
     }
 
+    @Override
     public boolean usesIndex(Index index) {
         return false;
     }
 
+    @Override
     public void setIndexOwner(Index index) {
         DbException.throwInternalError();
     }
 
+    @Override
     public HashSet<Column> getReferencedColumns(Table table) {
         HashSet<Column> columns = New.hashSet();
         expr.isEverything(ExpressionVisitor.getColumnsVisitor(columns));
@@ -117,10 +131,12 @@ public class ConstraintCheck extends Constraint {
         return expr;
     }
 
+    @Override
     public boolean isBefore() {
         return true;
     }
 
+    @Override
     public void checkExistingData(Session session) {
         if (session.getDatabase().isStarting()) {
             // don't check at startup
@@ -133,14 +149,17 @@ public class ConstraintCheck extends Constraint {
         }
     }
 
+    @Override
     public Index getUniqueIndex() {
         return null;
     }
 
+    @Override
     public void rebuild() {
         // nothing to do
     }
 
+    @Override
     public boolean isEverything(ExpressionVisitor visitor) {
         return expr.isEverything(visitor);
     }

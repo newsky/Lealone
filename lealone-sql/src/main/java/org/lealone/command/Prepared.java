@@ -1,15 +1,16 @@
 /*
- * Copyright 2004-2013 H2 Group. Multiple-Licensed under the H2 License,
- * Version 1.0, and under the Eclipse Public License, Version 1.0
- * (http://h2database.com/html/license.html).
+ * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (http://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.lealone.command;
 
 import java.util.ArrayList;
+import java.util.List;
 
 import org.lealone.api.DatabaseEventListener;
 import org.lealone.api.ErrorCode;
+import org.lealone.dbobject.table.TableFilter;
 import org.lealone.engine.Database;
 import org.lealone.engine.Session;
 import org.lealone.engine.SysProperties;
@@ -18,6 +19,7 @@ import org.lealone.expression.Parameter;
 import org.lealone.message.DbException;
 import org.lealone.message.Trace;
 import org.lealone.result.ResultInterface;
+import org.lealone.result.SearchRow;
 import org.lealone.util.StatementBuilder;
 import org.lealone.value.Value;
 
@@ -311,13 +313,17 @@ public abstract class Prepared {
      * enabled.
      *
      * @param startTime when the statement was started
-     * @param count the update count
+     * @param rowCount the query or update row count
      */
-    void trace(long startTime, int count) {
+    void trace(long startTime, int rowCount) {
         if (session.getTrace().isInfoEnabled() && startTime > 0) {
-            long time = System.currentTimeMillis() - startTime;
+            long deltaTime = System.currentTimeMillis() - startTime;
             String params = Trace.formatParams(parameters);
-            session.getTrace().infoSQL(sqlStatement, params, count, time);
+            session.getTrace().infoSQL(sqlStatement, params, rowCount, deltaTime);
+        }
+        if (session.getDatabase().getQueryStatistics()) {
+            long deltaTime = System.currentTimeMillis() - startTime;
+            session.getDatabase().getQueryStatisticsData().update(toString(), deltaTime, rowCount);
         }
     }
 
@@ -468,5 +474,37 @@ public abstract class Prepared {
 
     public boolean isDDL() {
         return false;
+    }
+
+    // 多值insert、不带等号PartitionKey条件的delete/update都是一种批量操作，
+    // 这类批量操作会当成一个分布式事务处理
+    public boolean isBatch() {
+        return false;
+    }
+
+    public static boolean containsEqualPartitionKeyComparisonType(TableFilter tableFilter) {
+        return getPartitionKey(tableFilter) != null;
+    }
+
+    public static Value getPartitionKey(TableFilter tableFilter) {
+        SearchRow startRow = tableFilter.getStartSearchRow();
+        SearchRow endRow = tableFilter.getEndSearchRow();
+
+        Value startPK = getPartitionKey(startRow);
+        Value endPK = getPartitionKey(endRow);
+        if (startPK != null && endPK != null && startPK == endPK)
+            return startPK;
+
+        return null;
+    }
+
+    public static Value getPartitionKey(SearchRow row) {
+        if (row == null)
+            return null;
+        return row.getRowKey();
+    }
+
+    public List<Long> getRowVersions() {
+        return null;
     }
 }

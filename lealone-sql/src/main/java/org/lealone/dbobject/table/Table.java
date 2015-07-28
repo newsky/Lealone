@@ -9,6 +9,7 @@ package org.lealone.dbobject.table;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import org.lealone.api.ErrorCode;
@@ -34,6 +35,7 @@ import org.lealone.result.SearchRow;
 import org.lealone.result.SimpleRow;
 import org.lealone.result.SimpleRowValue;
 import org.lealone.result.SortOrder;
+import org.lealone.transaction.TransactionMap;
 import org.lealone.util.New;
 import org.lealone.value.CompareMode;
 import org.lealone.value.Value;
@@ -180,7 +182,7 @@ public abstract class Table extends SchemaObjectBase {
     public abstract void removeRow(Session session, Row row);
 
     public void removeRow(final Session session, final Row row, boolean isUndo) {
-        //TODO
+        // TODO
     }
 
     /**
@@ -359,7 +361,7 @@ public abstract class Table extends SchemaObjectBase {
         }
         ArrayList<Right> rights = database.getAllRights();
         for (Right right : rights) {
-            if (right.getGrantedTable() == this) {
+            if (right.getGrantedObject() == this) {
                 children.add(right);
             }
         }
@@ -433,6 +435,17 @@ public abstract class Table extends SchemaObjectBase {
      *            new row,...
      */
     public void updateRows(Prepared prepared, Session session, RowList rows) {
+        List<Long> rowVersionList = null;
+        TransactionMap<Long, Long> rowVersionMap = getRowVersionMap();
+        if (rowVersionMap != null) {
+            rowVersionList = New.arrayList();
+            for (rows.reset(); rows.hasNext();) {
+                Row o = rows.next();
+                rows.next();
+                rowVersionList.add(rowVersionMap.get(o.getKey()));
+            }
+        }
+
         // in case we need to undo the update
         long savepointId = session.getTransaction().getSavepointId();
         // remove the old rows
@@ -461,6 +474,15 @@ public abstract class Table extends SchemaObjectBase {
                 throw e;
             }
         }
+
+        if (rowVersionMap != null) {
+            int i = 0;
+            for (rows.reset(); rows.hasNext();) {
+                Row o = rows.next();
+                rows.next();
+                rowVersionMap.put(o.getKey(), rowVersionList.get(i++) + 1);
+            }
+        }
     }
 
     public ArrayList<TableView> getViews() {
@@ -485,7 +507,7 @@ public abstract class Table extends SchemaObjectBase {
             database.removeSchemaObject(session, constraint);
         }
         for (Right right : database.getAllRights()) {
-            if (right.getGrantedTable() == this) {
+            if (right.getGrantedObject() == this) {
                 database.removeDatabaseObject(session, right);
             }
         }
@@ -640,15 +662,15 @@ public abstract class Table extends SchemaObjectBase {
      * @param sortOrder the sort order
      * @return the plan item
      */
-    public PlanItem getBestPlanItem(Session session, int[] masks, SortOrder sortOrder) {
+    public PlanItem getBestPlanItem(Session session, int[] masks, TableFilter filter, SortOrder sortOrder) {
         PlanItem item = new PlanItem();
         item.setIndex(getScanIndex(session));
-        item.cost = item.getIndex().getCost(session, null, null);
+        item.cost = item.getIndex().getCost(session, null, null, null);
         ArrayList<Index> indexes = getIndexes();
         if (indexes != null && masks != null) {
             for (int i = 1, size = indexes.size(); i < size; i++) {
                 Index index = indexes.get(i);
-                double cost = index.getCost(session, masks, sortOrder);
+                double cost = index.getCost(session, masks, filter, sortOrder);
                 if (cost < item.cost) {
                     item.cost = cost;
                     item.setIndex(index);
@@ -1004,7 +1026,7 @@ public abstract class Table extends SchemaObjectBase {
             for (Constraint cons : constraints) {
                 if (cons.usesIndex(index)) {
                     cons.setIndexOwner(index);
-                    database.update(session, cons);
+                    database.updateMeta(session, cons);
                     stillNeeded = true;
                 }
             }
@@ -1109,7 +1131,7 @@ public abstract class Table extends SchemaObjectBase {
         return false;
     }
 
-    public boolean supportsAlterColumnWithCopyData() {
+    public boolean supportsAlterColumnWithCopyData() { // TODO
         return true;
     }
 
@@ -1163,5 +1185,17 @@ public abstract class Table extends SchemaObjectBase {
 
     public void setColumnsModified(boolean modified) {
         this.isColumnsModified = modified;
+    }
+
+    public boolean containsGlobalUniqueIndex() {
+        return false;
+    }
+
+    public long getRowVersion(long rowKey) {
+        return -1;
+    }
+
+    public TransactionMap<Long, Long> getRowVersionMap() {
+        return null;
     }
 }

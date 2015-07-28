@@ -1,7 +1,6 @@
 /*
- * Copyright 2004-2013 H2 Group. Multiple-Licensed under the H2 License,
- * Version 1.0, and under the Eclipse Public License, Version 1.0
- * (http://h2database.com/html/license.html).
+ * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (http://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.lealone.dbobject.constraint;
@@ -72,6 +71,7 @@ public class ConstraintReferential extends Constraint {
         super(schema, id, name, table);
     }
 
+    @Override
     public String getConstraintType() {
         return Constraint.REFERENTIAL;
     }
@@ -93,18 +93,21 @@ public class ConstraintReferential extends Constraint {
     }
 
     /**
-     * Create the SQL statement of this object so a copy of the table can be made.
+     * Create the SQL statement of this object so a copy of the table can be
+     * made.
      *
      * @param forTable the table to create the object for
      * @param quotedName the name of this object (quoted if necessary)
      * @return the SQL statement
      */
+    @Override
     public String getCreateSQLForCopy(Table forTable, String quotedName) {
         return getCreateSQLForCopy(forTable, refTable, quotedName, true);
     }
 
     /**
-     * Create the SQL statement of this object so a copy of the table can be made.
+     * Create the SQL statement of this object so a copy of the table can be
+     * made.
      *
      * @param forTable the table to create the object for
      * @param forRefTable the referenced table
@@ -201,10 +204,12 @@ public class ConstraintReferential extends Constraint {
         return buff.toString();
     }
 
+    @Override
     public String getCreateSQLWithoutIndexes() {
         return getCreateSQLForCopy(table, refTable, getSQL(), false);
     }
 
+    @Override
     public String getCreateSQL() {
         return getCreateSQLForCopy(table, getSQL());
     }
@@ -217,6 +222,7 @@ public class ConstraintReferential extends Constraint {
         return columns;
     }
 
+    @Override
     public HashSet<Column> getReferencedColumns(Table table) {
         HashSet<Column> result = New.hashSet();
         if (table == this.table) {
@@ -270,6 +276,7 @@ public class ConstraintReferential extends Constraint {
         this.refIndexOwner = isRefOwner;
     }
 
+    @Override
     public void removeChildrenAndResources(Session session) {
         table.removeConstraint(this);
         refTable.removeConstraint(this);
@@ -291,6 +298,7 @@ public class ConstraintReferential extends Constraint {
         invalidate();
     }
 
+    @Override
     public void checkRow(Session session, Table t, Row oldRow, Row newRow) {
         if (!database.getReferentialIntegrity()) {
             return;
@@ -550,6 +558,7 @@ public class ConstraintReferential extends Constraint {
         updateSQL = buff.toString();
     }
 
+    @Override
     public void rebuild() {
         buildUpdateSQL();
         buildDeleteSQL();
@@ -596,14 +605,17 @@ public class ConstraintReferential extends Constraint {
         }
     }
 
+    @Override
     public Table getRefTable() {
         return refTable;
     }
 
+    @Override
     public boolean usesIndex(Index idx) {
         return idx == index || idx == refIndex;
     }
 
+    @Override
     public void setIndexOwner(Index index) {
         if (this.index == index) {
             indexOwner = true;
@@ -614,15 +626,18 @@ public class ConstraintReferential extends Constraint {
         }
     }
 
+    @Override
     public boolean isBefore() {
         return false;
     }
 
+    @Override
     public void checkExistingData(Session session) {
         if (session.getDatabase().isStarting()) {
             // don't check at startup
             return;
         }
+        // session.startStatementWithinTransaction(); //TODO
         StatementBuilder buff = new StatementBuilder("SELECT 1 FROM (SELECT ");
         for (IndexColumn c : columns) {
             buff.appendExceptFirst(", ");
@@ -656,6 +671,7 @@ public class ConstraintReferential extends Constraint {
         }
     }
 
+    @Override
     public Index getUniqueIndex() {
         return refIndex;
     }

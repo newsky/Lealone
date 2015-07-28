@@ -46,14 +46,44 @@ public class CreateUser extends DefineCommand {
         this.password = password;
     }
 
-    private char[] getCharArray(Expression e) {
-        return e.optimize(session).getValue(session).getString().toCharArray();
+    /**
+     * Set the salt and hash for the given user.
+     *
+     * @param user the user
+     * @param session the session
+     * @param salt the salt
+     * @param hash the hash
+     */
+    static void setSaltAndHash(User user, Session session, Expression salt, Expression hash) {
+        user.setSaltAndHash(getByteArray(session, salt), getByteArray(session, hash));
     }
 
-    private byte[] getByteArray(Expression e) {
-        return StringUtils.convertHexToBytes(e.optimize(session).getValue(session).getString());
+    private static byte[] getByteArray(Session session, Expression e) {
+        String s = e.optimize(session).getValue(session).getString();
+        return s == null ? new byte[0] : StringUtils.convertHexToBytes(s);
     }
 
+    /**
+     * Set the password for the given user.
+     *
+     * @param user the user
+     * @param session the session
+     * @param password the password
+     */
+    static void setPassword(User user, Session session, Expression password) {
+        String pwd = password.optimize(session).getValue(session).getString();
+        char[] passwordChars = pwd == null ? new char[0] : pwd.toCharArray();
+        byte[] userPasswordHash;
+        String userName = user.getName();
+        if (userName.length() == 0 && passwordChars.length == 0) {
+            userPasswordHash = new byte[0];
+        } else {
+            userPasswordHash = SHA256.getKeyPasswordHash(userName, passwordChars);
+        }
+        user.setUserPasswordHash(userPasswordHash);
+    }
+
+    @Override
     public int update() {
         session.getUser().checkAdmin();
         session.commit(true);
@@ -72,16 +102,9 @@ public class CreateUser extends DefineCommand {
         user.setAdmin(admin);
         user.setComment(comment);
         if (hash != null && salt != null) {
-            user.setSaltAndHash(getByteArray(salt), getByteArray(hash));
+            setSaltAndHash(user, session, salt, hash);
         } else if (password != null) {
-            char[] passwordChars = getCharArray(password);
-            byte[] userPasswordHash;
-            if (userName.length() == 0 && passwordChars.length == 0) {
-                userPasswordHash = new byte[0];
-            } else {
-                userPasswordHash = SHA256.getKeyPasswordHash(userName, passwordChars);
-            }
-            user.setUserPasswordHash(userPasswordHash);
+            setPassword(user, session, password);
         } else {
             throw DbException.throwInternalError();
         }
@@ -105,6 +128,7 @@ public class CreateUser extends DefineCommand {
         this.comment = comment;
     }
 
+    @Override
     public int getType() {
         return CommandInterface.CREATE_USER;
     }

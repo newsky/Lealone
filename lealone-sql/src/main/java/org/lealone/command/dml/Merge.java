@@ -98,7 +98,7 @@ public class Merge extends Prepared implements InsertOrMerge {
 
     @Override
     public int update() {
-        //在集群模式下使用query时先不创建行，这会导致从其他表中把记录取过来
+        // 在集群模式下使用query时先不创建行，这会导致从其他表中把记录取过来
         if (query == null || isLocal())
             createRows();
         return Session.getRouter().executeMerge(this);
@@ -422,8 +422,11 @@ public class Merge extends Prepared implements InsertOrMerge {
         return true;
     }
 
+    @Override
     public boolean isBatch() {
-        return query != null || list.size() > 1; // || table.doesSecondaryIndexExist();
+        // 因为GlobalUniqueIndex是通过独立的唯一索引表实现的，如果包含GlobalUniqueIndex，
+        // 那么每次往主表中增加一条记录时，都会同时往唯一索引表中加一条记录，所以也是批量的
+        return (query != null && query.isBatchForInsert()) || list.size() > 1 || table.containsGlobalUniqueIndex();
     }
 
     public Query getQuery() {

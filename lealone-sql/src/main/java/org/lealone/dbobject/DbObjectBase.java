@@ -1,7 +1,6 @@
 /*
- * Copyright 2004-2013 H2 Group. Multiple-Licensed under the H2 License,
- * Version 1.0, and under the Eclipse Public License, Version 1.0
- * (http://h2database.com/html/license.html).
+ * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (http://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.lealone.dbobject;
@@ -44,11 +43,11 @@ public abstract class DbObjectBase implements DbObject {
      * @param db the database
      * @param objectId the object id
      * @param name the name
-     * @param traceModule the trace module name
+     * @param traceModuleId the trace module id
      */
-    protected void initDbObjectBase(Database db, int objectId, String name, String traceModule) {
+    protected void initDbObjectBase(Database db, int objectId, String name, int traceModuleId) {
         this.database = db;
-        this.trace = db.getTrace(traceModule);
+        this.trace = db.getTrace(traceModuleId);
         this.id = objectId;
         this.objectName = name;
         this.modificationId = db.getModificationMetaId();
@@ -59,6 +58,7 @@ public abstract class DbObjectBase implements DbObject {
      *
      * @return the SQL statement
      */
+    @Override
     public abstract String getCreateSQL();
 
     /**
@@ -66,6 +66,7 @@ public abstract class DbObjectBase implements DbObject {
      *
      * @return the SQL statement
      */
+    @Override
     public abstract String getDropSQL();
 
     /**
@@ -74,11 +75,13 @@ public abstract class DbObjectBase implements DbObject {
      *
      * @param session the session
      */
+    @Override
     public abstract void removeChildrenAndResources(Session session);
 
     /**
      * Check if this object can be renamed. System objects may not be renamed.
      */
+    @Override
     public abstract void checkRename();
 
     /**
@@ -96,22 +99,27 @@ public abstract class DbObjectBase implements DbObject {
         objectName = name;
     }
 
+    @Override
     public String getSQL() {
         return Parser.quoteIdentifier(objectName);
     }
 
+    @Override
     public ArrayList<DbObject> getChildren() {
         return null;
     }
 
+    @Override
     public Database getDatabase() {
         return database;
     }
 
+    @Override
     public int getId() {
         return id;
     }
 
+    @Override
     public String getName() {
         return objectName;
     }
@@ -128,28 +136,34 @@ public abstract class DbObjectBase implements DbObject {
         objectName = null;
     }
 
+    @Override
     public void rename(String newName) {
         checkRename();
         objectName = newName;
         setModified();
     }
 
+    @Override
     public boolean isTemporary() {
         return temporary;
     }
 
+    @Override
     public void setTemporary(boolean temporary) {
         this.temporary = temporary;
     }
 
+    @Override
     public void setComment(String comment) {
         this.comment = comment;
     }
 
+    @Override
     public String getComment() {
         return comment;
     }
 
+    @Override
     public String toString() {
         return objectName + ":" + id + ":" + super.toString();
     }

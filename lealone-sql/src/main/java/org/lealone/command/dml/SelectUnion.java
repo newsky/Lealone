@@ -105,11 +105,20 @@ public class SelectUnion extends Query {
     }
 
     private Value[] convert(Value[] values, int columnCount) {
+        Value[] newValues;
+        if (columnCount == values.length) {
+            // re-use the array if possible
+            newValues = values;
+        } else {
+            // create a new array if needed,
+            // for the value hash set
+            newValues = new Value[columnCount];
+        }
         for (int i = 0; i < columnCount; i++) {
             Expression e = expressions.get(i);
-            values[i] = values[i].convertTo(e.getType());
+            newValues[i] = values[i].convertTo(e.getType());
         }
-        return values;
+        return newValues;
     }
 
     @Override
@@ -233,6 +242,8 @@ public class SelectUnion extends Query {
                 result.setLimit(v.getInt());
             }
         }
+        l.close();
+        r.close();
         result.done();
         if (target != null) {
             while (result.next()) {
@@ -296,7 +307,7 @@ public class SelectUnion extends Query {
         }
         if (orderList != null) {
             initOrder(session, expressions, null, orderList, getColumnCount(), true, null);
-            sort = prepareOrder(orderList, expressions.size());
+            sort = prepareOrder(session, orderList, expressions.size());
             orderList = null;
         }
         expressionArray = new Expression[expressions.size()];
@@ -395,8 +406,8 @@ public class SelectUnion extends Query {
                 buff.append("\nOFFSET ").append(StringUtils.unEnclose(offsetExpr.getSQL()));
             }
         }
-        if (sampleSize != 0) {
-            buff.append("\nSAMPLE_SIZE ").append(sampleSize);
+        if (sampleSizeExpr != null) {
+            buff.append("\nSAMPLE_SIZE ").append(StringUtils.unEnclose(sampleSizeExpr.getSQL()));
         }
         if (isForUpdate) {
             buff.append("\nFOR UPDATE");
@@ -406,7 +417,8 @@ public class SelectUnion extends Query {
 
     @Override
     public LocalResult query(int limit, ResultTarget target) {
-        // union doesn't always know the parameter list of the left and right queries
+        // union doesn't always know the parameter list of the left and right
+        // queries
         return queryWithoutCache(limit, target);
     }
 
@@ -447,5 +459,10 @@ public class SelectUnion extends Query {
         List<TableFilter> filters = left.getTopFilters();
         filters.addAll(right.getTopFilters());
         return filters;
+    }
+
+    @Override
+    public boolean isBatchForInsert() {
+        return left.isBatchForInsert() || right.isBatchForInsert();
     }
 }

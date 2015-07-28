@@ -64,8 +64,7 @@ public interface Index extends SchemaObject {
     /**
      * Find a row or a list of rows and create a cursor to iterate over the result.
      *
-     * @param filter the table filter (which possibly knows
-     *          about additional conditions)
+     * @param filter the table filter (which possibly knows about additional conditions)
      * @param first the first row, or null for no limit
      * @param last the last row, or null for no limit
      * @return the cursor to iterate over the results
@@ -80,10 +79,11 @@ public interface Index extends SchemaObject {
      * @param session the session
      * @param masks per-column comparison bit masks, null means 'always false',
      *              see constants in IndexCondition
+     * @param filter the table filter
      * @param sortOrder the sort order
      * @return the estimated cost
      */
-    double getCost(Session session, int[] masks, SortOrder sortOrder);
+    double getCost(Session session, int[] masks, TableFilter filter, SortOrder sortOrder);
 
     /**
      * Remove the index.

@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import org.lealone.dbobject.table.Column;
 import org.lealone.dbobject.table.IndexColumn;
 import org.lealone.dbobject.table.MetaTable;
+import org.lealone.dbobject.table.TableFilter;
 import org.lealone.engine.Session;
 import org.lealone.message.DbException;
 import org.lealone.result.Row;
@@ -32,42 +33,17 @@ public class MetaIndex extends IndexBase {
     }
 
     @Override
-    public void close(Session session) {
-        // nothing to do
-    }
-
-    @Override
-    public void add(Session session, Row row) {
-        throw DbException.getUnsupportedException("META");
-    }
-
-    @Override
-    public void remove(Session session, Row row) {
-        throw DbException.getUnsupportedException("META");
-    }
-
-    @Override
     public Cursor find(Session session, SearchRow first, SearchRow last) {
         ArrayList<Row> rows = meta.generateRows(session, first, last);
         return new MetaCursor(rows);
     }
 
     @Override
-    public double getCost(Session session, int[] masks, SortOrder sortOrder) {
+    public double getCost(Session session, int[] masks, TableFilter filter, SortOrder sortOrder) {
         if (scan) {
             return 10 * MetaTable.ROW_COUNT_APPROXIMATION;
         }
-        return getCostRangeIndex(masks, MetaTable.ROW_COUNT_APPROXIMATION, sortOrder);
-    }
-
-    @Override
-    public void truncate(Session session) {
-        throw DbException.getUnsupportedException("META");
-    }
-
-    @Override
-    public void remove(Session session) {
-        throw DbException.getUnsupportedException("META");
+        return getCostRangeIndex(masks, MetaTable.ROW_COUNT_APPROXIMATION, filter, sortOrder);
     }
 
     @Override
@@ -80,28 +56,8 @@ public class MetaIndex extends IndexBase {
     }
 
     @Override
-    public void checkRename() {
-        throw DbException.getUnsupportedException("META");
-    }
-
-    @Override
-    public boolean needRebuild() {
-        return false;
-    }
-
-    @Override
     public String getCreateSQL() {
         return null;
-    }
-
-    @Override
-    public boolean canGetFirstOrLast() {
-        return false;
-    }
-
-    @Override
-    public Cursor findFirstOrLast(Session session, boolean first) {
-        throw DbException.getUnsupportedException("META");
     }
 
     @Override

@@ -25,7 +25,6 @@ import org.lealone.command.router.LocalRouter;
 import org.lealone.command.router.Router;
 import org.lealone.dbobject.Procedure;
 import org.lealone.dbobject.Schema;
-import org.lealone.dbobject.Sequence;
 import org.lealone.dbobject.Setting;
 import org.lealone.dbobject.User;
 import org.lealone.dbobject.constraint.Constraint;
@@ -100,6 +99,7 @@ public class Session extends SessionWithState implements Transaction.Validator {
     private int objectId;
     private final int queryCacheSize;
     private SmallLRUCache<String, Command> queryCache;
+    private long modificationMetaID = -1;
 
     public Session(Database database, User user, int id) {
         this.database = database;
@@ -358,9 +358,18 @@ public class Session extends SessionWithState implements Transaction.Validator {
         this.lockTimeout = lockTimeout;
     }
 
+    private boolean local;
+
+    public void setLocal(boolean local) {
+        this.local = local;
+    }
+
+    public boolean isLocal() {
+        return local || connectionInfo == null || connectionInfo.isEmbedded() || !Session.isClusterMode();
+    }
+
     /**
-     * Parse and prepare the given SQL statement. This method also checks the
-     * rights.
+     * Parse and prepare the given SQL statement. This method also checks the rights.
      *
      * @param sql the SQL statement
      * @return the prepared statement
@@ -380,8 +389,18 @@ public class Session extends SessionWithState implements Transaction.Validator {
         Parser parser = createParser();
         parser.setRightsChecked(rightsChecked);
         Prepared p = parser.prepare(sql);
-        setLocal(p);
+        p.setLocal(isLocal());
         return p;
+    }
+
+    public Command prepareCommandLocal(String sql) {
+        Command c = prepareCommand(sql);
+        c.getPrepared().setLocal(true);
+        return c;
+    }
+
+    public Command prepareCommand(String sql) {
+        return prepareCommand(sql, -1);
     }
 
     /**
@@ -391,32 +410,8 @@ public class Session extends SessionWithState implements Transaction.Validator {
      * @param sql the SQL statement
      * @return the prepared statement
      */
-    public Command prepareLocal(String sql) {
-        Command c = prepareCommand(sql);
-        c.getPrepared().setLocal(true);
-        return c;
-    }
-
-    private void setLocal(Prepared p) {
-        p.setLocal(isLocal());
-    }
-
-    public boolean isLocal() {
-        return local || connectionInfo == null || connectionInfo.isEmbedded() || !Session.isClusterMode();
-    }
-
-    private boolean local;
-
-    public void setLocal(boolean local) {
-        this.local = local;
-    }
-
     @Override
-    public Command prepareCommand(String sql, int fetchSize) {
-        return prepareCommand(sql);
-    }
-
-    public synchronized Command prepareCommand(String sql) {
+    public synchronized Command prepareCommand(String sql, int fetchSize) {
         if (closed) {
             throw DbException.get(ErrorCode.CONNECTION_BROKEN_1, "session closed");
         }
@@ -424,7 +419,13 @@ public class Session extends SessionWithState implements Transaction.Validator {
         if (queryCacheSize > 0) {
             if (queryCache == null) {
                 queryCache = SmallLRUCache.newInstance(queryCacheSize);
+                modificationMetaID = database.getModificationMetaId();
             } else {
+                long newModificationMetaID = database.getModificationMetaId();
+                if (newModificationMetaID != modificationMetaID) {
+                    queryCache.clear();
+                    modificationMetaID = newModificationMetaID;
+                }
                 command = queryCache.get(sql);
                 if (command != null && command.canReuse()) {
                     command.reuse();
@@ -439,7 +440,11 @@ public class Session extends SessionWithState implements Transaction.Validator {
                 queryCache.put(sql, command);
             }
         }
-        setLocal(command.getPrepared());
+        Prepared p = command.getPrepared();
+        p.setLocal(isLocal());
+        if (fetchSize != -1)
+            p.setFetchSize(fetchSize);
+
         return command;
     }
 
@@ -476,15 +481,15 @@ public class Session extends SessionWithState implements Transaction.Validator {
             // increment the data mod count, so that other sessions
             // see the changes
             // TODO should not rely on locking
-            //            if (locks.size() > 0) {
-            //                for (int i = 0, size = locks.size(); i < size; i++) {
-            //                    Table t = locks.get(i);
-            //                    if (t instanceof MVTable) {
-            //                        ((MVTable) t).commit();
-            //                    }
-            //                }
-            //            }
-            //避免重复commit
+            // if (locks.size() > 0) {
+            // for (int i = 0, size = locks.size(); i < size; i++) {
+            // Table t = locks.get(i);
+            // if (t instanceof MVTable) {
+            // ((MVTable) t).commit();
+            // }
+            // }
+            // }
+            // 避免重复commit
             Transaction transaction = this.transaction;
             this.transaction = null;
             if (allLocalTransactionNames == null)
@@ -722,11 +727,11 @@ public class Session extends SessionWithState implements Transaction.Validator {
         if (trace != null && !closed) {
             return trace;
         }
-        String traceModuleName = Trace.JDBC + "[" + id + "]";
+        String traceModuleName = "jdbc[" + id + "]";
         if (closed) {
             return new TraceSystem(null).getTrace(traceModuleName);
         }
-        trace = database.getTrace(traceModuleName);
+        trace = database.getTraceSystem().getTrace(traceModuleName);
         return trace;
     }
 
@@ -1139,43 +1144,6 @@ public class Session extends SessionWithState implements Transaction.Validator {
         return modificationId;
     }
 
-    @Override
-    public boolean isReconnectNeeded(boolean write) {
-        while (true) {
-            boolean reconnect = database.isReconnectNeeded();
-            if (reconnect) {
-                return true;
-            }
-            if (write) {
-                if (database.beforeWriting()) {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-    }
-
-    @Override
-    public void afterWriting() {
-        database.afterWriting();
-    }
-
-    @Override
-    public SessionInterface reconnect(boolean write) {
-        readSessionState();
-        close();
-        Session newSession = database.getDatabaseEngine().createSession(connectionInfo);
-        newSession.sessionState = sessionState;
-        newSession.recreateSessionState();
-        if (write) {
-            while (!newSession.database.beforeWriting()) {
-                // wait until we are allowed to write
-            }
-        }
-        return newSession;
-    }
-
     public void setConnectionInfo(ConnectionInfo ci) {
         connectionInfo = ci;
     }
@@ -1212,10 +1180,6 @@ public class Session extends SessionWithState implements Transaction.Validator {
         return new Insert(this);
     }
 
-    public Sequence createSequence(Schema schema, int id, String name, boolean belongsToTable) {
-        return new Sequence(schema, id, name, belongsToTable);
-    }
-
     private boolean isRoot = true;
 
     public boolean isRoot() {
@@ -1246,10 +1210,22 @@ public class Session extends SessionWithState implements Transaction.Validator {
     private volatile Transaction transaction;
 
     public Transaction getTransaction() {
-        if (transaction == null) {
-            transaction = database.getTransactionEngine().beginTransaction(autoCommit);
-            transaction.setValidator(this);
+        return getTransaction(null);
+    }
+
+    public Transaction getTransaction(Prepared p) {
+        if (transaction != null)
+            return transaction;
+
+        boolean autoCommit = this.autoCommit;
+        if (autoCommit && p != null && !p.isLocal() && p.isBatch()) { // 批量操作会当成一个分布式事务处理
+            autoCommit = false;
         }
+
+        transaction = database.getTransactionEngine().beginTransaction(autoCommit);
+        transaction.setValidator(this);
+        if (isRoot && !autoCommit && p != null && !p.isLocal())
+            transaction.setLocal(false);
         return transaction;
     }
 
@@ -1280,7 +1256,7 @@ public class Session extends SessionWithState implements Transaction.Validator {
      */
     private Properties originalProperties;
 
-    //参与本次事务的其他FrontendSession
+    // 参与本次事务的其他FrontendSession
     protected final Map<String, FrontendSession> frontendSessionCache = New.hashMap();
 
     public void addFrontendSession(String url, FrontendSession frontendSession) {

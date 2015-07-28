@@ -21,6 +21,7 @@ import org.lealone.dbobject.SchemaObject;
 import org.lealone.dbobject.constraint.Constraint;
 import org.lealone.dbobject.constraint.ConstraintReferential;
 import org.lealone.dbobject.index.Cursor;
+import org.lealone.dbobject.index.GlobalUniqueIndex;
 import org.lealone.dbobject.index.HashIndex;
 import org.lealone.dbobject.index.Index;
 import org.lealone.dbobject.index.IndexType;
@@ -38,6 +39,8 @@ import org.lealone.result.Row;
 import org.lealone.result.SortOrder;
 import org.lealone.storage.TransactionStorageEngine;
 import org.lealone.transaction.Transaction;
+import org.lealone.transaction.TransactionMap;
+import org.lealone.type.ObjectDataType;
 import org.lealone.util.MathUtils;
 import org.lealone.util.New;
 import org.lealone.value.DataType;
@@ -68,6 +71,9 @@ public class MVTable extends TableBase {
     private Column rowIdColumn;
 
     private final TransactionStorageEngine storageEngine;
+    private boolean containsGlobalUniqueIndex;
+
+    private final TransactionMap<Long, Long> rowVersionMap;
 
     public MVTable(CreateTableData data, TransactionStorageEngine storageEngine) {
         super(data);
@@ -80,6 +86,9 @@ public class MVTable extends TableBase {
             }
         }
         traceLock = database.getTrace(Trace.LOCK);
+
+        rowVersionMap = storageEngine.openMap(data.session, getName() + "_row_version", new ObjectDataType(),
+                new ObjectDataType());
     }
 
     /**
@@ -417,7 +426,10 @@ public class MVTable extends TableBase {
             }
             if (mainIndexColumn != -1) {
                 index = createMVDelegateIndex(indexId, indexName, indexType, mainIndexColumn);
-            } else if (indexType.isHash() && cols.length <= 1) { //TODO 是否要支持多版本
+            } else if (isGlobalUniqueIndex(session, indexType)) {
+                index = new GlobalUniqueIndex(session, this, indexId, indexName, cols, indexType);
+                containsGlobalUniqueIndex = true;
+            } else if (indexType.isHash() && cols.length <= 1) { // TODO 是否要支持多版本
                 if (indexType.isUnique()) {
                     index = new HashIndex(this, indexId, indexName, cols, indexType);
                 } else {
@@ -442,6 +454,12 @@ public class MVTable extends TableBase {
         indexes.add(index);
         setModified();
         return index;
+    }
+
+    private boolean isGlobalUniqueIndex(Session session, IndexType indexType) {
+        return indexType.isUnique() && !indexType.isPrimaryKey() && Session.isClusterMode()
+                && session.getConnectionInfo() != null && !session.getConnectionInfo().isEmbedded(); // &&
+                                                                                                     // !session.isLocal();
     }
 
     private MVDelegateIndex createMVDelegateIndex(int indexId, String indexName, IndexType indexType,
@@ -599,6 +617,7 @@ public class MVTable extends TableBase {
             throw DbException.convert(e);
         }
         analyzeIfRequired(session);
+        rowVersionMap.remove(row.getKey());
     }
 
     @Override
@@ -609,6 +628,7 @@ public class MVTable extends TableBase {
             index.truncate(session);
         }
         changesSinceAnalyze = 0;
+        rowVersionMap.clear();
     }
 
     @Override
@@ -626,6 +646,7 @@ public class MVTable extends TableBase {
             throw DbException.convert(e);
         }
         analyzeIfRequired(session);
+        rowVersionMap.put(row.getKey(), (long) 1);
     }
 
     @Override
@@ -775,4 +796,18 @@ public class MVTable extends TableBase {
         }
     }
 
+    @Override
+    public boolean containsGlobalUniqueIndex() {
+        return containsGlobalUniqueIndex;
+    }
+
+    @Override
+    public long getRowVersion(long rowKey) {
+        return rowVersionMap.get(rowKey);
+    }
+
+    @Override
+    public TransactionMap<Long, Long> getRowVersionMap() {
+        return rowVersionMap;
+    }
 }

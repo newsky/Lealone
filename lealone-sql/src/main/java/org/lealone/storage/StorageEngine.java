@@ -11,6 +11,7 @@ import org.lealone.dbobject.table.Table;
 import org.lealone.engine.Database;
 import org.lealone.transaction.TransactionEngine;
 import org.lealone.type.DataType;
+import org.lealone.util.BitField;
 
 /**
  * A class that implements this interface can create custom table
@@ -43,4 +44,10 @@ public interface StorageEngine {
     void flush(Database db);
 
     void sync(Database db);
+
+    void initTransactions(Database db);
+
+    void removeTemporaryMaps(Database db, BitField objectIds);
+
+    void closeImmediately(Database db);
 }

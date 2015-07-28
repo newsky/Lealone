@@ -8,6 +8,7 @@ package org.lealone.dbobject.index;
 
 import org.lealone.dbobject.table.IndexColumn;
 import org.lealone.dbobject.table.RangeTable;
+import org.lealone.dbobject.table.TableFilter;
 import org.lealone.engine.Session;
 import org.lealone.message.DbException;
 import org.lealone.result.Row;
@@ -30,21 +31,6 @@ public class RangeIndex extends IndexBase {
     }
 
     @Override
-    public void close(Session session) {
-        // nothing to do
-    }
-
-    @Override
-    public void add(Session session, Row row) {
-        throw DbException.getUnsupportedException("SYSTEM_RANGE");
-    }
-
-    @Override
-    public void remove(Session session, Row row) {
-        throw DbException.getUnsupportedException("SYSTEM_RANGE");
-    }
-
-    @Override
     public Cursor find(Session session, SearchRow first, SearchRow last) {
         long min = rangeTable.getMin(session), start = min;
         long max = rangeTable.getMax(session), end = max;
@@ -62,33 +48,13 @@ public class RangeIndex extends IndexBase {
     }
 
     @Override
-    public double getCost(Session session, int[] masks, SortOrder sortOrder) {
+    public double getCost(Session session, int[] masks, TableFilter filter, SortOrder sortOrder) {
         return 1;
     }
 
     @Override
     public String getCreateSQL() {
         return null;
-    }
-
-    @Override
-    public void remove(Session session) {
-        throw DbException.getUnsupportedException("SYSTEM_RANGE");
-    }
-
-    @Override
-    public void truncate(Session session) {
-        throw DbException.getUnsupportedException("SYSTEM_RANGE");
-    }
-
-    @Override
-    public boolean needRebuild() {
-        return false;
-    }
-
-    @Override
-    public void checkRename() {
-        throw DbException.getUnsupportedException("SYSTEM_RANGE");
     }
 
     @Override
@@ -110,11 +76,6 @@ public class RangeIndex extends IndexBase {
     @Override
     public long getRowCountApproximation() {
         return rangeTable.getRowCountApproximation();
-    }
-
-    @Override
-    public long getDiskSpaceUsed() {
-        return 0;
     }
 
     /**

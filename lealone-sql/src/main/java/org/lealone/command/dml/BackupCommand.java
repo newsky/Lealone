@@ -28,43 +28,30 @@ public class BackupCommand extends Prepared {
         this.fileNameExpr = fileName;
     }
 
+    @Override
     public int update() {
-        String name = fileNameExpr.getValue(session).getString();
+        String fileName = fileNameExpr.getValue(session).getString();
         session.getUser().checkAdmin();
-        backupTo(name);
+        session.getDatabase().backupTo(fileName);
         return 0;
     }
 
-    private void backupTo(String fileName) {
-        session.getDatabase().backupTo(fileName);
-    }
-
+    @Override
     public boolean isTransactional() {
         return true;
     }
 
-    /**
-     * Fix the file name, replacing backslash with slash.
-     *
-     * @param f the file name
-     * @return the corrected file name
-     */
-    public static String correctFileName(String f) {
-        f = f.replace('\\', '/');
-        if (f.startsWith("/")) {
-            f = f.substring(1);
-        }
-        return f;
-    }
-
+    @Override
     public boolean needRecompile() {
         return false;
     }
 
+    @Override
     public ResultInterface queryMeta() {
         return null;
     }
 
+    @Override
     public int getType() {
         return CommandInterface.BACKUP;
     }

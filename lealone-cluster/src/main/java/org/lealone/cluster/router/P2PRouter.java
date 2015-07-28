@@ -19,9 +19,11 @@ package org.lealone.cluster.router;
 
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -52,10 +54,12 @@ import org.lealone.command.router.SerializedResult;
 import org.lealone.command.router.SortedResult;
 import org.lealone.dbobject.Schema;
 import org.lealone.dbobject.table.TableFilter;
+import org.lealone.engine.FrontendSession;
+import org.lealone.engine.Session;
+import org.lealone.expression.Parameter;
 import org.lealone.message.DbException;
 import org.lealone.result.ResultInterface;
 import org.lealone.result.Row;
-import org.lealone.result.SearchRow;
 import org.lealone.util.New;
 import org.lealone.value.Value;
 import org.lealone.value.ValueUuid;
@@ -78,18 +82,53 @@ public class P2PRouter implements Router {
         if (defineCommand.isLocal())
             return defineCommand.updateLocal();
 
-        Set<InetAddress> liveMembers = Gossiper.instance.getLiveMembers();
-        List<Callable<Integer>> commands = New.arrayList(liveMembers.size());
+        InetAddress seedEndpoint = Gossiper.instance.getFirstLiveSeedEndpoint();
+        if (seedEndpoint == null)
+            throw new RuntimeException("no live seed endpoint");
 
-        liveMembers.remove(Utils.getBroadcastAddress());
-        commands.add(defineCommand);
-        try {
-            for (InetAddress endpoint : liveMembers) {
-                commands.add(createUpdateCallable(endpoint, defineCommand));
+        if (!seedEndpoint.equals(Utils.getBroadcastAddress())) {
+            Session session = defineCommand.getSession();
+            FrontendSession fs = null;
+            try {
+                fs = FrontendSessionPool.getSeedEndpointFrontendSession(session, session.getURL(seedEndpoint));
+                FrontendCommand fc = FrontendSessionPool.getFrontendCommand(fs, defineCommand.getSQL(),
+                        defineCommand.getParameters(), defineCommand.getFetchSize());
+                return fc.executeUpdate();
+            } catch (Exception e) {
+                throw DbException.convert(e);
+            } finally {
+                if (fs != null)
+                    fs.close();
             }
-            return CommandParallel.executeUpdateCallable(commands);
-        } catch (Exception e) {
-            throw DbException.convert(e);
+        }
+
+        // 从seed节点上转发命令到其他节点时会携带一个"TOKEN"参数，
+        // 如果在其他节点上又转发另一条命令过来，那么会构成一个循环，
+        // 此时就不能用this当同步对象，会产生死锁。
+        Object lock = this;
+        Properties properties = defineCommand.getSession().getOriginalProperties();
+        if (properties != null && properties.getProperty("TOKEN") != null)
+            lock = properties;
+
+        // 在seed节点上串行执行所有的defineCommand
+        synchronized (lock) {
+            properties.setProperty("TOKEN", "1");
+
+            Set<InetAddress> liveMembers = Gossiper.instance.getLiveMembers();
+            List<Callable<Integer>> commands = New.arrayList(liveMembers.size());
+
+            liveMembers.remove(Utils.getBroadcastAddress());
+            commands.add(defineCommand);
+            try {
+                for (InetAddress endpoint : liveMembers) {
+                    commands.add(createUpdateCallable(endpoint, defineCommand));
+                }
+                return CommandParallel.executeUpdateCallable(commands);
+            } catch (Exception e) {
+                throw DbException.convert(e);
+            } finally {
+                properties.remove("TOKEN");
+            }
         }
     }
 
@@ -169,7 +208,7 @@ public class P2PRouter implements Router {
         Value partitionKey;
         for (Row row : iom.getRows()) {
             partitionKey = row.getRowKey();
-            //不存在PRIMARY KEY时，随机生成一个
+            // 不存在PRIMARY KEY时，随机生成一个
             if (partitionKey == null)
                 partitionKey = ValueUuid.getNewRandom();
             Token tk = StorageService.getPartitioner().getToken(ByteBuffer.wrap(partitionKey.getBytesNoCopy()));
@@ -316,33 +355,30 @@ public class P2PRouter implements Router {
                 throw DbException.convert(e);
             }
         } else {
-            //TODO 处理有多副本的情况
+            // TODO 处理有多副本的情况
             Set<InetAddress> liveMembers = Gossiper.instance.getLiveMembers();
+            String sql = getSelectPlanSQL(select);
 
             try {
                 if (!select.isGroupQuery() && select.getSortOrder() == null) {
                     List<CommandInterface> commands = New.arrayList(liveMembers.size());
 
-                    //在本地节点执行
+                    // 在本地节点执行
                     liveMembers.remove(Utils.getBroadcastAddress());
-                    String sql = getSelectPlanSQL(select);
-                    Prepared p = select.getSession().prepare(sql, true);
-                    p.setLocal(true);
-                    p.setFetchSize(select.getFetchSize());
-                    commands.add(new CommandWrapper(p));
+                    commands.add(new CommandWrapper(createNewLocalSelect(select, sql)));
 
                     for (InetAddress endpoint : liveMembers) {
                         commands.add(createFrontendCommand(endpoint, select, sql));
                     }
 
-                    return new SerializedResult(commands, maxRows, scrollable, select);
+                    return new SerializedResult(commands, maxRows, scrollable, select.getLimitRows());
                 } else {
                     List<Callable<ResultInterface>> commands = New.arrayList(liveMembers.size());
                     for (InetAddress endpoint : liveMembers) {
                         if (endpoint.equals(Utils.getBroadcastAddress())) {
-                            commands.add(select);
+                            commands.add(createNewLocalSelect(select, sql));
                         } else {
-                            commands.add(createSelectCallable(endpoint, select, maxRows, scrollable));
+                            commands.add(createSelectCallable(endpoint, select, sql, maxRows, scrollable));
                         }
                     }
 
@@ -351,7 +387,7 @@ public class P2PRouter implements Router {
                     if (!select.isGroupQuery() && select.getSortOrder() != null)
                         return new SortedResult(maxRows, select.getSession(), select, results);
 
-                    String newSQL = select.getPlanSQL(true);
+                    String newSQL = select.getPlanSQL(true, true);
                     Select newSelect = (Select) select.getSession().prepare(newSQL, true);
                     newSelect.setLocal(true);
 
@@ -364,16 +400,33 @@ public class P2PRouter implements Router {
         }
     }
 
+    private static Select createNewLocalSelect(Select oldSelect, String sql) {
+        if (!oldSelect.isGroupQuery() && oldSelect.getLimit() == null && oldSelect.getOffset() == null) {
+            oldSelect.setLocal(true);
+            return oldSelect;
+        }
+
+        Prepared p = oldSelect.getSession().prepare(sql, true);
+        p.setLocal(true);
+        p.setFetchSize(oldSelect.getFetchSize());
+        ArrayList<Parameter> oldParams = oldSelect.getParameters();
+        ArrayList<Parameter> newParams = p.getParameters();
+        for (int i = 0, size = newParams.size(); i < size; i++) {
+            newParams.get(i).setValue(oldParams.get(i).getParamValue());
+        }
+        return (Select) p;
+    }
+
     private static String getSelectPlanSQL(Select select) {
-        if (select.isGroupQuery() || select.getLimit() != null)
+        if (select.isGroupQuery() || select.getLimit() != null || select.getOffset() != null)
             return select.getPlanSQL(true);
         else
             return select.getSQL();
     }
 
-    private static Callable<ResultInterface> createSelectCallable(InetAddress endpoint, Select select,
+    private static Callable<ResultInterface> createSelectCallable(InetAddress endpoint, Select select, String sql,
             final int maxRows, final boolean scrollable) throws Exception {
-        final FrontendCommand c = createFrontendCommand(endpoint, select, getSelectPlanSQL(select));
+        final FrontendCommand c = createFrontendCommand(endpoint, select, sql);
 
         Callable<ResultInterface> call = new Callable<ResultInterface>() {
             @Override
@@ -385,22 +438,12 @@ public class P2PRouter implements Router {
         return call;
     }
 
-    private static Value getPartitionKey(SearchRow row) {
-        if (row == null)
-            return null;
-        return row.getRowKey();
-    }
-
     private static List<InetAddress> getTargetEndpointsIfEqual(TableFilter tableFilter) {
-        SearchRow startRow = tableFilter.getStartSearchRow();
-        SearchRow endRow = tableFilter.getEndSearchRow();
+        Value pk = Prepared.getPartitionKey(tableFilter);
 
-        Value startPK = getPartitionKey(startRow);
-        Value endPK = getPartitionKey(endRow);
-
-        if (startPK != null && endPK != null && startPK == endPK) {
+        if (pk != null) {
             Schema schema = tableFilter.getTable().getSchema();
-            Token tk = StorageService.getPartitioner().getToken(ByteBuffer.wrap(startPK.getBytesNoCopy()));
+            Token tk = StorageService.getPartitioner().getToken(ByteBuffer.wrap(pk.getBytesNoCopy()));
             List<InetAddress> naturalEndpoints = StorageService.instance.getNaturalEndpoints(schema, tk);
             Collection<InetAddress> pendingEndpoints = StorageService.instance.getTokenMetaData().pendingEndpointsFor(
                     tk, schema.getFullName());

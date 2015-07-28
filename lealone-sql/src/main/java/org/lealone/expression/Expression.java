@@ -232,16 +232,6 @@ public abstract class Expression {
     }
 
     /**
-     * Get the table alias name or null
-     * if this expression does not represent a column.
-     *
-     * @return the table alias name
-     */
-    public String getTableAlias() {
-        return null;
-    }
-
-    /**
      * Get the alias name of a column or SQL expression
      * if it is not an aliased expression.
      *
@@ -287,6 +277,7 @@ public abstract class Expression {
      *
      * @return the string representation
      */
+    @Override
     public String toString() {
         return getSQL();
     }
@@ -349,9 +340,6 @@ public abstract class Expression {
     }
 
     public void mergeAggregate(Session session, Value v) {
-    }
-
-    public void mergeAggregate(Session session, TableFilter tableFilter) {
     }
 
     public void calculate(Calculator calculator) {

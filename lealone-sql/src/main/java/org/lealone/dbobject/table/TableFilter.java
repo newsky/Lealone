@@ -9,7 +9,6 @@ package org.lealone.dbobject.table;
 import java.util.ArrayList;
 
 import org.lealone.command.Parser;
-import org.lealone.command.Prepared;
 import org.lealone.command.dml.Select;
 import org.lealone.dbobject.Right;
 import org.lealone.dbobject.index.Index;
@@ -105,8 +104,6 @@ public class TableFilter implements ColumnResolver {
     private Expression fullCondition;
     private final int hashCode;
 
-    private Prepared prepared;
-
     /**
      * Create a new table filter object.
      *
@@ -164,7 +161,7 @@ public class TableFilter implements ColumnResolver {
         if (indexConditions.isEmpty()) {
             item = new PlanItem();
             item.setIndex(table.getScanIndex(s));
-            item.cost = item.getIndex().getCost(s, null, null);
+            item.cost = item.getIndex().getCost(s, null, null, null);
         } else {
             int len = table.getColumns().length;
             int[] masks = new int[len];
@@ -176,6 +173,8 @@ public class TableFilter implements ColumnResolver {
                     }
                     int id = condition.getColumn().getColumnId();
                     if (id >= 0) {
+                        // 多个IndexCondition可能是同一个字段
+                        // 如id>1 and id <10，这样masks[id]最后就变成IndexCondition.RANGE了
                         masks[id] |= condition.getMask(indexConditions);
                     }
                 }
@@ -184,7 +183,7 @@ public class TableFilter implements ColumnResolver {
             if (select != null) {
                 sortOrder = select.getSortOrder();
             }
-            item = table.getBestPlanItem(s, masks, sortOrder);
+            item = table.getBestPlanItem(s, masks, this, sortOrder);
             // The more index conditions, the earlier the table.
             // This is to ensure joins without indexes run quickly:
             // x (x.a=10); y (x.b=y.b) - see issue 113
@@ -1074,13 +1073,5 @@ public class TableFilter implements ColumnResolver {
             cursor.parseIndexConditions(session, indexConditions);
         }
         return cursor.getEndSearchRow();
-    }
-
-    public Prepared getPrepared() {
-        return prepared;
-    }
-
-    public void setPrepared(Prepared prepared) {
-        this.prepared = prepared;
     }
 }

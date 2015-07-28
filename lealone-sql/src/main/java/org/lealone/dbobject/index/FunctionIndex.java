@@ -12,6 +12,7 @@ import java.sql.SQLException;
 
 import org.lealone.dbobject.table.FunctionTable;
 import org.lealone.dbobject.table.IndexColumn;
+import org.lealone.dbobject.table.TableFilter;
 import org.lealone.engine.Session;
 import org.lealone.message.DbException;
 import org.lealone.result.ResultInterface;
@@ -35,30 +36,15 @@ public class FunctionIndex extends IndexBase {
     }
 
     @Override
-    public void close(Session session) {
-        // nothing to do
-    }
-
-    @Override
-    public void add(Session session, Row row) {
-        throw DbException.getUnsupportedException("ALIAS");
-    }
-
-    @Override
-    public void remove(Session session, Row row) {
-        throw DbException.getUnsupportedException("ALIAS");
-    }
-
-    @Override
     public Cursor find(Session session, SearchRow first, SearchRow last) {
-        if (functionTable.isFast()) {
-            return new FunctionCursorResultSet(session, functionTable.getResultSet(session));
+        if (functionTable.isBufferResultSetToLocalTemp()) {
+            return new FunctionCursor(functionTable.getResult(session));
         }
-        return new FunctionCursor(functionTable.getResult(session));
+        return new FunctionCursorResultSet(session, functionTable.getResultSet(session));
     }
 
     @Override
-    public double getCost(Session session, int[] masks, SortOrder sortOrder) {
+    public double getCost(Session session, int[] masks, TableFilter filter, SortOrder sortOrder) {
         if (masks != null) {
             throw DbException.getUnsupportedException("ALIAS");
         }
@@ -72,36 +58,6 @@ public class FunctionIndex extends IndexBase {
     }
 
     @Override
-    public void remove(Session session) {
-        throw DbException.getUnsupportedException("ALIAS");
-    }
-
-    @Override
-    public void truncate(Session session) {
-        throw DbException.getUnsupportedException("ALIAS");
-    }
-
-    @Override
-    public boolean needRebuild() {
-        return false;
-    }
-
-    @Override
-    public void checkRename() {
-        throw DbException.getUnsupportedException("ALIAS");
-    }
-
-    @Override
-    public boolean canGetFirstOrLast() {
-        return false;
-    }
-
-    @Override
-    public Cursor findFirstOrLast(Session session, boolean first) {
-        throw DbException.getUnsupportedException("ALIAS");
-    }
-
-    @Override
     public long getRowCount(Session session) {
         return functionTable.getRowCount(session);
     }
@@ -109,11 +65,6 @@ public class FunctionIndex extends IndexBase {
     @Override
     public long getRowCountApproximation() {
         return functionTable.getRowCountApproximation();
-    }
-
-    @Override
-    public long getDiskSpaceUsed() {
-        return 0;
     }
 
     @Override
@@ -217,7 +168,7 @@ public class FunctionIndex extends IndexBase {
                     int columnCount = meta.getColumnCount();
                     values = new Value[columnCount];
                     for (int i = 0; i < columnCount; i++) {
-                        int type = DataType.convertSQLTypeToValueType(meta.getColumnType(i + 1));
+                        int type = DataType.getValueTypeFromResultSet(meta, i + 1);
                         values[i] = DataType.readValue(session, result, i + 1, type);
                     }
                 } else {

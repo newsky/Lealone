@@ -71,6 +71,7 @@ public class CreateView extends SchemaCommand {
         this.force = force;
     }
 
+    @Override
     public int update() {
         session.commit(true);
         Database db = session.getDatabase();
@@ -114,11 +115,12 @@ public class CreateView extends SchemaCommand {
         if (old == null) {
             db.addSchemaObject(session, view);
         } else {
-            db.update(session, view);
+            db.updateMeta(session, view);
         }
         return 0;
     }
 
+    @Override
     public int getType() {
         return CommandInterface.CREATE_VIEW;
     }

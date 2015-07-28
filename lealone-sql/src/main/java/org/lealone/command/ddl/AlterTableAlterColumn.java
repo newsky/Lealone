@@ -79,6 +79,7 @@ public class AlterTableAlterColumn extends SchemaCommand {
         this.addAfter = after;
     }
 
+    @Override
     public int update() {
         session.commit(true);
         Database db = session.getDatabase();
@@ -102,7 +103,7 @@ public class AlterTableAlterColumn extends SchemaCommand {
             }
             checkNoNullValues();
             oldColumn.setNullable(false);
-            db.update(session, table);
+            db.updateMeta(session, table);
             break;
         }
         case CommandInterface.ALTER_TABLE_ALTER_COLUMN_NULL: {
@@ -112,7 +113,7 @@ public class AlterTableAlterColumn extends SchemaCommand {
             }
             checkNullable();
             oldColumn.setNullable(true);
-            db.update(session, table);
+            db.updateMeta(session, table);
             break;
         }
         case CommandInterface.ALTER_TABLE_ALTER_COLUMN_DEFAULT: {
@@ -120,7 +121,7 @@ public class AlterTableAlterColumn extends SchemaCommand {
             oldColumn.setSequence(null);
             oldColumn.setDefaultExpression(session, defaultExpression);
             removeSequence(sequence);
-            db.update(session, table);
+            db.updateMeta(session, table);
             break;
         }
         case CommandInterface.ALTER_TABLE_ALTER_COLUMN_CHANGE_TYPE: {
@@ -130,38 +131,33 @@ public class AlterTableAlterColumn extends SchemaCommand {
             if (oldColumn.isWideningConversion(newColumn)) {
                 convertAutoIncrementColumn(newColumn);
                 oldColumn.copy(newColumn);
-                db.update(session, table);
+                db.updateMeta(session, table);
             } else {
-                if (table.supportsAlterColumnWithCopyData()) { //TODO
-                    oldColumn.setSequence(null);
-                    oldColumn.setDefaultExpression(session, null);
-                    oldColumn.setConvertNullToDefault(false);
-                    if (oldColumn.isNullable() && !newColumn.isNullable()) {
-                        checkNoNullValues();
-                    } else if (!oldColumn.isNullable() && newColumn.isNullable()) {
-                        checkNullable();
-                    }
-                    convertAutoIncrementColumn(newColumn);
-                    copyData();
+                oldColumn.setSequence(null);
+                oldColumn.setDefaultExpression(session, null);
+                oldColumn.setConvertNullToDefault(false);
+                if (oldColumn.isNullable() && !newColumn.isNullable()) {
+                    checkNoNullValues();
+                } else if (!oldColumn.isNullable() && newColumn.isNullable()) {
+                    checkNullable();
                 }
+                convertAutoIncrementColumn(newColumn);
+                copyData();
             }
             break;
         }
         case CommandInterface.ALTER_TABLE_ADD_COLUMN: {
             // ifNotExists only supported for single column add
-            if (ifNotExists && columnsToAdd.size() == 1 && table.doesColumnExist(columnsToAdd.get(0).getFullName())) {
+            if (ifNotExists && columnsToAdd.size() == 1 && table.doesColumnExist(columnsToAdd.get(0).getName())) {
                 break;
             }
             for (Column column : columnsToAdd) {
-                convertAutoIncrementColumn(column);
+                if (column.isAutoIncrement()) {
+                    int objId = getObjectId();
+                    column.convertAutoIncrementToSequence(session, getSchema(), objId, table.isTemporary());
+                }
             }
-            if (table.supportsAlterColumnWithCopyData()) { //TODO
-                copyData();
-            } else {
-                for (Column c : columnsToAdd)
-                    table.addColumn(c);
-                db.update(session, table);
-            }
+            copyData();
             break;
         }
         case CommandInterface.ALTER_TABLE_DROP_COLUMN: {
@@ -169,18 +165,13 @@ public class AlterTableAlterColumn extends SchemaCommand {
                 throw DbException.get(ErrorCode.CANNOT_DROP_LAST_COLUMN, oldColumn.getSQL());
             }
             table.dropSingleColumnConstraintsAndIndexes(session, oldColumn);
-            if (table.supportsAlterColumnWithCopyData()) { //TODO
-                copyData();
-            } else {
-                table.dropColumn(oldColumn);
-                db.update(session, table);
-            }
+            copyData();
             break;
         }
         case CommandInterface.ALTER_TABLE_ALTER_COLUMN_SELECTIVITY: {
             int value = newSelectivity.optimize(session).getValue(session).getInt();
             oldColumn.setSelectivity(value);
-            db.update(session, table);
+            db.updateMeta(session, table);
             break;
         }
         default:
@@ -454,6 +445,7 @@ public class AlterTableAlterColumn extends SchemaCommand {
 
     private void execute(String sql, boolean ddl) {
         Prepared command = session.prepare(sql);
+        command.setLocal(true);
         command.update();
         if (ddl) {
             session.commit(true);
@@ -498,6 +490,7 @@ public class AlterTableAlterColumn extends SchemaCommand {
         this.newColumn = newColumn;
     }
 
+    @Override
     public int getType() {
         return type;
     }

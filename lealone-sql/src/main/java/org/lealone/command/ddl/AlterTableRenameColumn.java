@@ -13,6 +13,7 @@ import org.lealone.dbobject.table.Column;
 import org.lealone.dbobject.table.Table;
 import org.lealone.engine.Database;
 import org.lealone.engine.Session;
+import org.lealone.expression.Expression;
 
 /**
  * This class represents the statement
@@ -40,22 +41,29 @@ public class AlterTableRenameColumn extends DefineCommand {
         this.newName = newName;
     }
 
+    @Override
     public int update() {
         session.commit(true);
         Database db = session.getDatabase();
         session.getUser().checkRight(table, Right.ALL);
         table.checkSupportAlter();
+        // we need to update CHECK constraint
+        // since it might reference the name of the column
+        Expression newCheckExpr = column.getCheckConstraint(session, newName);
         table.renameColumn(column, newName);
+        column.removeCheckConstraint();
+        column.addCheckConstraint(session, newCheckExpr);
         table.setModified();
-        db.update(session, table);
+        db.updateMeta(session, table);
         for (DbObject child : table.getChildren()) {
             if (child.getCreateSQL() != null) {
-                db.update(session, child);
+                db.updateMeta(session, child);
             }
         }
         return 0;
     }
 
+    @Override
     public int getType() {
         return CommandInterface.ALTER_TABLE_ALTER_COLUMN_RENAME;
     }

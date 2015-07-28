@@ -150,7 +150,7 @@ public class Column {
             this.name = name.substring(pos + 1);
         } else
             this.name = name;
-        this.type = Value.UNKNOWN; //先设为Value.UNKNOWN，根据表达式的类型动态确定
+        this.type = Value.UNKNOWN; // 先设为Value.UNKNOWN，根据表达式的类型动态确定
     }
 
     public Column(String name, boolean isRowKeyColumn) {
@@ -181,6 +181,7 @@ public class Column {
         this.displaySize = displaySize;
     }
 
+    @Override
     public boolean equals(Object o) {
         if (o == this) {
             return true;
@@ -203,6 +204,7 @@ public class Column {
         return name.equals(other.name) && columnFamilyName.equals(other.columnFamilyName);
     }
 
+    @Override
     public int hashCode() {
         if (table == null || name == null) {
             return 0;
@@ -429,9 +431,9 @@ public class Column {
                 update = true;
             }
             if (update) {
-                sequence.setStartValue(now + inc);
+                sequence.modify(now + inc, null, null, null);
                 session.setLastIdentity(ValueLong.get(now));
-                sequence.flush(session);
+                sequence.flush(session, 0);
             }
         }
     }
@@ -465,10 +467,10 @@ public class Column {
                 break;
             }
         }
-        Sequence seq = session.createSequence(schema, id, sequenceName, true);
-        seq.setStartValue(start);
-        seq.setIncrement(increment);
-        if (!temporary) {
+        Sequence seq = new Sequence(schema, id, sequenceName, start, increment);
+        if (temporary) {
+            seq.setTemporary(true);
+        } else {
             session.getDatabase().addSchemaObject(session, seq);
         }
         setAutoIncrement(false, 0, 0);
@@ -643,6 +645,9 @@ public class Column {
      * @param expr the (additional) constraint
      */
     public void addCheckConstraint(Session session, Expression expr) {
+        if (expr == null) {
+            return;
+        }
         resolver = new SingleColumnResolver(this);
         synchronized (this) {
             String oldName = name;
@@ -664,6 +669,14 @@ public class Column {
             checkConstraint = new ConditionAndOr(ConditionAndOr.AND, checkConstraint, expr);
         }
         checkConstraintSQL = getCheckConstraintSQL(session, name);
+    }
+
+    /**
+     * Remove the check constraint if there is one.
+     */
+    public void removeCheckConstraint() {
+        checkConstraint = null;
+        checkConstraintSQL = null;
     }
 
     /**
@@ -752,8 +765,9 @@ public class Column {
         return primaryKey;
     }
 
+    @Override
     public String toString() {
-        return getFullName(); //return name;
+        return getFullName(); // return name;
     }
 
     /**

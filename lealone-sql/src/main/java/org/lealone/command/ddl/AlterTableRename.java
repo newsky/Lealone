@@ -37,6 +37,7 @@ public class AlterTableRename extends SchemaCommand {
         newTableName = name;
     }
 
+    @Override
     public int update() {
         session.commit(true);
         Database db = session.getDatabase();
@@ -46,7 +47,7 @@ public class AlterTableRename extends SchemaCommand {
             if (!t.isHidden()) {
                 t.setHidden(hidden);
                 oldTable.setHidden(true);
-                db.update(session, oldTable);
+                db.updateMeta(session, oldTable);
             }
             return 0;
         }
@@ -60,6 +61,7 @@ public class AlterTableRename extends SchemaCommand {
         return 0;
     }
 
+    @Override
     public int getType() {
         return CommandInterface.ALTER_TABLE_RENAME;
     }

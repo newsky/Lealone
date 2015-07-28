@@ -40,6 +40,7 @@ public class DropIndex extends SchemaCommand {
         this.indexName = indexName;
     }
 
+    @Override
     public int update() {
         session.commit(true);
         Database db = session.getDatabase();
@@ -60,7 +61,7 @@ public class DropIndex extends SchemaCommand {
                     if (Constraint.PRIMARY_KEY.equals(cons.getConstraintType())) {
                         pkConstraint = cons;
                     } else {
-                        throw DbException.get(ErrorCode.INDEX_BELONGS_TO_CONSTRAINT_1, indexName);
+                        throw DbException.get(ErrorCode.INDEX_BELONGS_TO_CONSTRAINT_2, indexName, cons.getName());
                     }
                 }
             }
@@ -74,6 +75,7 @@ public class DropIndex extends SchemaCommand {
         return 0;
     }
 
+    @Override
     public int getType() {
         return CommandInterface.DROP_INDEX;
     }

@@ -1,7 +1,6 @@
 /*
- * Copyright 2004-2013 H2 Group. Multiple-Licensed under the H2 License,
- * Version 1.0, and under the Eclipse Public License, Version 1.0
- * (http://h2database.com/html/license.html).
+ * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (http://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.lealone.dbobject.constraint;
@@ -35,10 +34,12 @@ public class ConstraintUnique extends Constraint {
         this.primaryKey = primaryKey;
     }
 
+    @Override
     public String getConstraintType() {
         return primaryKey ? Constraint.PRIMARY_KEY : Constraint.UNIQUE;
     }
 
+    @Override
     public String getCreateSQLForCopy(Table forTable, String quotedName) {
         return getCreateSQLForCopy(forTable, quotedName, true);
     }
@@ -72,10 +73,12 @@ public class ConstraintUnique extends Constraint {
         return "UNIQUE";
     }
 
+    @Override
     public String getCreateSQLWithoutIndexes() {
         return getCreateSQLForCopy(table, getSQL(), false);
     }
 
+    @Override
     public String getCreateSQL() {
         return getCreateSQLForCopy(table, getSQL());
     }
@@ -100,6 +103,7 @@ public class ConstraintUnique extends Constraint {
         this.indexOwner = isOwner;
     }
 
+    @Override
     public void removeChildrenAndResources(Session session) {
         table.removeConstraint(this);
         if (indexOwner) {
@@ -112,18 +116,22 @@ public class ConstraintUnique extends Constraint {
         invalidate();
     }
 
+    @Override
     public void checkRow(Session session, Table t, Row oldRow, Row newRow) {
         // unique index check is enough
     }
 
+    @Override
     public boolean usesIndex(Index idx) {
         return idx == index;
     }
 
+    @Override
     public void setIndexOwner(Index index) {
         indexOwner = true;
     }
 
+    @Override
     public HashSet<Column> getReferencedColumns(Table table) {
         HashSet<Column> result = New.hashSet();
         for (IndexColumn c : columns) {
@@ -132,18 +140,23 @@ public class ConstraintUnique extends Constraint {
         return result;
     }
 
+    @Override
     public boolean isBefore() {
         return true;
     }
 
+    @Override
     public void checkExistingData(Session session) {
-        // no need to check: when creating the unique index any problems are found
+        // no need to check: when creating the unique index any problems are
+        // found
     }
 
+    @Override
     public Index getUniqueIndex() {
         return index;
     }
 
+    @Override
     public void rebuild() {
         // nothing to do
     }

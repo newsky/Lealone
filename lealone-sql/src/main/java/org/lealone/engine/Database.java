@@ -41,7 +41,6 @@ import org.lealone.dbobject.table.Column;
 import org.lealone.dbobject.table.IndexColumn;
 import org.lealone.dbobject.table.MetaTable;
 import org.lealone.dbobject.table.Table;
-import org.lealone.dbobject.table.TableBase;
 import org.lealone.dbobject.table.TableView;
 import org.lealone.fs.FileUtils;
 import org.lealone.jdbc.JdbcConnection;
@@ -143,7 +142,7 @@ public class Database implements DataHandler {
     private int allowLiterals = Constants.ALLOW_LITERALS_ALL;
 
     private int powerOffCount = initialPowerOffCount;
-    private int closeDelay = -1; //不关闭
+    private int closeDelay = -1; // 不关闭
     private DatabaseCloser delayedCloser;
     private volatile boolean closing;
     private boolean ignoreCase;
@@ -154,11 +153,10 @@ public class Database implements DataHandler {
     private boolean multiVersion;
     private DatabaseCloser closeOnExit;
     private Mode mode = Mode.getInstance(Mode.REGULAR);
-    private boolean multiThreaded = true; //如果是false，整个数据库是串行的
+    private boolean multiThreaded = true; // 如果是false，整个数据库是串行的
     private int maxOperationMemory = Constants.DEFAULT_MAX_OPERATION_MEMORY;
     private SmallLRUCache<String, String[]> lobFileListCache;
     private final TempFileDeleter tempFileDeleter = TempFileDeleter.getInstance();
-    private volatile int checkpointAllowed;
     private int cacheSize;
     private int compactMode;
     private SourceCompiler compiler;
@@ -170,6 +168,9 @@ public class Database implements DataHandler {
     private int logMode;
     private boolean initialized = false;
     private DbException backgroundException;
+
+    private boolean queryStatistics;
+    private QueryStatisticsData queryStatisticsData;
 
     public Database(DatabaseEngine dbEngine, boolean persistent) {
         this.dbEngine = dbEngine;
@@ -292,13 +293,10 @@ public class Database implements DataHandler {
                 addDatabaseObject(systemSession, setting);
             }
         }
-        //getLobStorage().init();
+        // getLobStorage().init();
         systemSession.commit(true);
 
         trace.info("opened {0}", databaseName);
-        if (checkpointAllowed > 0) {
-            afterWriting();
-        }
     }
 
     private void openMetaTable() {
@@ -320,7 +318,7 @@ public class Database implements DataHandler {
         meta = mainSchema.createTable(data);
 
         IndexColumn[] pkCols = IndexColumn.wrap(new Column[] { columnId });
-        IndexType indexType = IndexType.createDelegate(); //重用原有的primary index
+        IndexType indexType = IndexType.createDelegate(); // 重用原有的primary index
         metaIdIndex = meta.addIndex(systemSession, "SYS_ID", 0, pkCols, indexType, true, null);
 
         ArrayList<MetaRecord> records = New.arrayList();
@@ -339,11 +337,16 @@ public class Database implements DataHandler {
             rec.execute(this, systemSession, eventListener);
         }
 
+        for (StorageEngine se : getStorageEngines()) {
+            se.initTransactions(this);
+            se.removeTemporaryMaps(this, objectIds);
+        }
+
         recompileInvalidViews(systemSession);
         starting = false;
     }
 
-    //TODO session参数就是systemSession，另外是否有必要来来回回recompile
+    // TODO session参数就是systemSession，另外是否有必要来来回回recompile
     private void recompileInvalidViews(Session session) {
         boolean recompileSuccessful;
         do {
@@ -457,20 +460,17 @@ public class Database implements DataHandler {
         if (powerOffCount != -1) {
             try {
                 powerOffCount = -1;
-                checkPowerOffInternal();
+                for (StorageEngine se : getStorageEngines())
+                    se.closeImmediately(this);
                 if (traceSystem != null) {
                     traceSystem.close();
                 }
             } catch (DbException e) {
-                TraceSystem.traceThrowable(e);
+                DbException.traceThrowable(e);
             }
         }
         getDatabaseEngine().closeDatabase(databaseName);
         throw DbException.get(ErrorCode.DATABASE_IS_CLOSED);
-    }
-
-    private void checkPowerOffInternal() {
-
     }
 
     /**
@@ -484,13 +484,13 @@ public class Database implements DataHandler {
     }
 
     /**
-     * Get the trace object for the given module.
+     * Get the trace object for the given module id.
      *
-     * @param module the module name
+     * @param moduleId the module id
      * @return the trace object
      */
-    public Trace getTrace(String module) {
-        return traceSystem.getTrace(module);
+    public Trace getTrace(int moduleId) {
+        return traceSystem.getTrace(moduleId);
     }
 
     @Override
@@ -589,9 +589,19 @@ public class Database implements DataHandler {
         if (meta == null) {
             return true;
         }
+        // 从seed节点上转发命令到其他节点时会携带一个"TOKEN"参数，
+        // 如果在其他节点上又转发另一条命令过来，那么会构成一个循环，
+        // 此时就不用再调用meta.lcok，否则会超时。
+        if (session.getOriginalProperties() != null && session.getOriginalProperties().getProperty("TOKEN") != null)
+            return true;
+
         boolean wasLocked = meta.isLockedExclusivelyBy(session);
         meta.lock(session, true, true);
         return wasLocked;
+    }
+
+    public void unlockMeta(Session session) {
+        meta.unlock(session);
     }
 
     /**
@@ -1149,7 +1159,7 @@ public class Database implements DataHandler {
      * @param session the session
      * @param obj the database object
      */
-    public synchronized void update(Session session, DbObject obj) {
+    public synchronized void updateMeta(Session session, DbObject obj) {
         lockMeta(session);
         int id = obj.getId();
         removeMeta(session, id);
@@ -1166,21 +1176,21 @@ public class Database implements DataHandler {
     public synchronized void renameSchemaObject(Session session, SchemaObject obj, String newName) {
         checkWritingAllowed();
         obj.getSchema().rename(obj, newName);
-        updateWithChildren(session, obj);
+        updateMetaAndFirstLevelChildren(session, obj);
     }
 
-    private synchronized void updateWithChildren(Session session, DbObject obj) {
+    private synchronized void updateMetaAndFirstLevelChildren(Session session, DbObject obj) {
         ArrayList<DbObject> list = obj.getChildren();
         Comment comment = findComment(obj);
         if (comment != null) {
             DbException.throwInternalError();
         }
-        update(session, obj);
+        updateMeta(session, obj);
         // remember that this scans only one level deep!
         if (list != null) {
             for (DbObject o : list) {
                 if (o.getCreateSQL() != null) {
-                    update(session, o);
+                    updateMeta(session, o);
                 }
             }
         }
@@ -1212,7 +1222,7 @@ public class Database implements DataHandler {
         map.remove(obj.getName());
         obj.rename(newName);
         map.put(newName, obj);
-        updateWithChildren(session, obj);
+        updateMetaAndFirstLevelChildren(session, obj);
     }
 
     /**
@@ -1390,7 +1400,7 @@ public class Database implements DataHandler {
         return traceSystem;
     }
 
-    //TODO 传递到存储引擎
+    // TODO 传递到存储引擎
     public synchronized void setCacheSize(int kb) {
         if (starting) {
             int max = MathUtils.convertLongToInt(Utils.getMemoryMax()) / 2;
@@ -1723,6 +1733,31 @@ public class Database implements DataHandler {
         return referentialIntegrity;
     }
 
+    public void setQueryStatistics(boolean b) {
+        queryStatistics = b;
+        synchronized (this) {
+            queryStatisticsData = null;
+        }
+    }
+
+    public boolean getQueryStatistics() {
+        return queryStatistics;
+    }
+
+    public QueryStatisticsData getQueryStatisticsData() {
+        if (!queryStatistics) {
+            return null;
+        }
+        if (queryStatisticsData == null) {
+            synchronized (this) {
+                if (queryStatisticsData == null) {
+                    queryStatisticsData = new QueryStatisticsData();
+                }
+            }
+        }
+        return queryStatisticsData;
+    }
+
     /**
      * Check if the database is currently opening. This is true until all stored
      * SQL statements have been executed.
@@ -1820,6 +1855,10 @@ public class Database implements DataHandler {
         return meta == null || meta.isLockedExclusively();
     }
 
+    public boolean isSysTableLockedBy(Session session) {
+        return meta == null || meta.isLockedExclusivelyBy(session);
+    }
+
     public void isSysTableLockedThenUnlock(Session session) {
         if (meta != null && meta.isLockedExclusively()) {
             meta.unlock(session);
@@ -1869,31 +1908,6 @@ public class Database implements DataHandler {
     }
 
     /**
-     * Check if the contents of the database was changed and therefore it is
-     * required to re-connect. This method waits until pending changes are
-     * completed. If a pending change takes too long (more than 2 seconds), the
-     * pending change is broken (removed from the properties file).
-     *
-     * @return true if reconnecting is required
-     */
-    public boolean isReconnectNeeded() {
-        return false;
-    }
-
-    /**
-     * Flush all changes when using the serialized mode, and if there are
-     * pending changes, and some time has passed. This switches to a new
-     * transaction log and resets the change pending flag in
-     * the .lock.db file.
-     */
-    public void checkpointIfRequired() {
-    }
-
-    public boolean isFileLockSerialized() {
-        return false;
-    }
-
-    /**
      * Flush all changes and open a new transaction log.
      */
     public void checkpoint() {
@@ -1902,22 +1916,6 @@ public class Database implements DataHandler {
                 se.flush(this);
         }
         getTempFileDeleter().deleteUnused();
-    }
-
-    /**
-     * This method is called before writing to the transaction log.
-     *
-     * @return true if the call was successful and writing is allowed,
-     *          false if another connection was faster
-     */
-    public boolean beforeWriting() {
-        return true;
-    }
-
-    /**
-     * This method is called after updates are finished.
-     */
-    public void afterWriting() {
     }
 
     /**
@@ -2030,12 +2028,7 @@ public class Database implements DataHandler {
             se.backupTo(this, fileName);
     }
 
-    public Index createIndex(TableBase table, int indexId, String indexName, IndexColumn[] indexCols,
-            IndexType indexType, boolean create, Session session) {
-        throw DbException.throwInternalError();
-    }
-
-    //每个数据库会有多个表，每个表有可能使用不同的存储引擎
+    // 每个数据库会有多个表，每个表有可能使用不同的存储引擎
     private final List<StorageEngine> storageEngines = new CopyOnWriteArrayList<>();
 
     public void addStorageEngine(StorageEngine storageEngine) {
@@ -2046,7 +2039,7 @@ public class Database implements DataHandler {
         return storageEngines;
     }
 
-    //每个数据库只有一个事务引擎
+    // 每个数据库只有一个事务引擎
     private TransactionEngine transactionEngine;
 
     public void setTransactionEngine(TransactionEngine transactionEngine) {
