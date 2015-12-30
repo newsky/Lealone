@@ -17,7 +17,8 @@
  */
 package org.lealone.transaction;
 
-import org.lealone.type.DataType;
+import org.lealone.storage.Storage;
+import org.lealone.storage.type.DataType;
 
 public interface Transaction {
 
@@ -32,11 +33,6 @@ public interface Transaction {
     public static final int STATUS_OPEN = 1;
 
     /**
-     * The status of a prepared transaction.
-     */
-    public static final int STATUS_PREPARED = 2;
-
-    /**
      * The status of a transaction that is being committed, but possibly not
      * yet finished. A transactions can go into this state when the store is
      * closed while the transaction is committing. When opening a store,
@@ -44,19 +40,13 @@ public interface Transaction {
      */
     public static final int STATUS_COMMITTING = 3;
 
-    String getName(); //用于2pc
-
-    void setName(String name); //用于2pc
-
-    void prepare(); //用于2pc
-
     int getStatus();
 
     void setStatus(int status);
 
     long getTransactionId();
 
-    //long getCommitTimestamp();
+    // long getCommitTimestamp();
 
     boolean isAutoCommit();
 
@@ -80,7 +70,7 @@ public interface Transaction {
      * @param name the name of the map
      * @return the transaction map
      */
-    <K, V> TransactionMap<K, V> openMap(String name);
+    <K, V> TransactionMap<K, V> openMap(String name, Storage storage);
 
     /**
      * Open the map to store the data.
@@ -92,11 +82,14 @@ public interface Transaction {
      * @param valueType the value data type
      * @return the transaction map
      */
-    <K, V> TransactionMap<K, V> openMap(String name, DataType keyType, DataType valueType);
+    <K, V> TransactionMap<K, V> openMap(String name, DataType keyType, DataType valueType, Storage storage);
+
+    <K, V> TransactionMap<K, V> openMap(String name, String mapType, DataType keyType, DataType valueType,
+            Storage storage);
 
     void addSavepoint(String name);
 
-    long getSavepointId();
+    int getSavepointId();
 
     void commit();
 
@@ -106,7 +99,7 @@ public interface Transaction {
 
     void rollbackToSavepoint(String name);
 
-    void rollbackToSavepoint(long savepointId);
+    void rollbackToSavepoint(int savepointId);
 
     interface Participant {
         void addSavepoint(String name);

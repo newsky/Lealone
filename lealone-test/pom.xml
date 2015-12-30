@@ -34,10 +34,5 @@
             <artifactId>lealone-bootstrap</artifactId>
             <version>${project.version}</version>
         </dependency>
-        <dependency>
-            <groupId>org.lealone</groupId>
-            <artifactId>lealone-storage-engine</artifactId>
-            <version>${project.version}</version>
-        </dependency>
     </dependencies>
 </project>

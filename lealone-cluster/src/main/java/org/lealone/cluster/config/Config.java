@@ -17,10 +17,10 @@
  */
 package org.lealone.cluster.config;
 
+import java.util.List;
+
 import org.lealone.cluster.config.EncryptionOptions.ClientEncryptionOptions;
 import org.lealone.cluster.config.EncryptionOptions.ServerEncryptionOptions;
-import org.lealone.cluster.config.TransportServerOptions.PgServerOptions;
-import org.lealone.cluster.config.TransportServerOptions.TcpServerOptions;
 
 /**
  * A class that contains configuration properties for the lealone node it runs within.
@@ -45,6 +45,7 @@ public class Config {
     public Integer storage_port = 6210;
     public Integer ssl_storage_port = 6211;
 
+    public Integer listen_port;
     public String listen_address;
     public String listen_interface;
     public Boolean listen_interface_prefer_ipv6 = false;
@@ -62,6 +63,11 @@ public class Config {
     public Integer dynamic_snitch_reset_interval_in_ms = 600000;
     public Double dynamic_snitch_badness_threshold = 0.1;
 
+    public volatile Integer stream_throughput_outbound_megabits_per_sec = 200;
+    public volatile Integer inter_dc_stream_throughput_outbound_megabits_per_sec = 0;
+    public Integer streaming_socket_timeout_in_ms = 0;
+    public Integer max_streaming_retries = 3;
+
     public ServerEncryptionOptions server_encryption_options = new ServerEncryptionOptions();
     public ClientEncryptionOptions client_encryption_options = new ClientEncryptionOptions();
 
@@ -73,8 +79,10 @@ public class Config {
 
     public String base_dir;
 
-    public TcpServerOptions tcp_server_options = new TcpServerOptions();
-    public PgServerOptions pg_server_options;
+    public List<PluggableEngineDef> storage_engines;
+    public List<PluggableEngineDef> transaction_engines;
+    public List<PluggableEngineDef> sql_engines;
+    public List<PluggableEngineDef> protocol_server_engines;
 
     public RunMode run_mode = RunMode.cluster;
 
@@ -97,9 +105,17 @@ public class Config {
     }
 
     public static enum RunMode {
-        //embedded,
+        // embedded,
         client_server,
-        //standalone,
+        // standalone,
         cluster,
+    }
+
+    public static String getProperty(String key) {
+        return getProperty(key, null);
+    }
+
+    public static String getProperty(String key, String def) {
+        return System.getProperty("lealone." + key, def);
     }
 }

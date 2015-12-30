@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 
+import org.lealone.cluster.config.Config;
 import org.lealone.cluster.config.DatabaseDescriptor;
 import org.lealone.cluster.dht.IPartitioner;
 import org.lealone.cluster.exceptions.ConfigurationException;
@@ -42,7 +43,7 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Joiner;
 
-public class Utils {
+public class Utils extends org.lealone.common.util.Utils {
     private static final Logger logger = LoggerFactory.getLogger(Utils.class);
     private static final BigInteger TWO = new BigInteger("2");
 
@@ -50,6 +51,7 @@ public class Utils {
 
     private static volatile InetAddress localInetAddress;
     private static volatile InetAddress broadcastInetAddress;
+    private static volatile String releaseVersion;
 
     public static final int MAX_UNSIGNED_SHORT = 0xFFFF;
 
@@ -60,8 +62,8 @@ public class Utils {
     }
 
     public static int getAvailableProcessors() {
-        if (System.getProperty("lealone.available_processors") != null)
-            return Integer.parseInt(System.getProperty("lealone.available_processors"));
+        if (Config.getProperty("available.processors") != null)
+            return Integer.parseInt(Config.getProperty("available.processors"));
         else
             return Runtime.getRuntime().availableProcessors();
     }
@@ -146,22 +148,26 @@ public class Utils {
     }
 
     public static String getReleaseVersionString() {
+        if (releaseVersion != null)
+            return releaseVersion;
         InputStream in = null;
         try {
             in = Utils.class.getClassLoader().getResourceAsStream("org/lealone/res/version.properties");
             if (in == null) {
-                return System.getProperty("lealone.releaseVersion", "Unknown");
+                releaseVersion = Config.getProperty("release.version", "Unknown");
+            } else {
+                Properties props = new Properties();
+                props.load(in);
+                releaseVersion = props.getProperty("lealoneVersion");
             }
-            Properties props = new Properties();
-            props.load(in);
-            return props.getProperty("lealoneVersion");
         } catch (Exception e) {
             JVMStabilityInspector.inspectThrowable(e);
             logger.warn("Unable to load version.properties", e);
-            return "debug version";
+            releaseVersion = "debug version";
         } finally {
             FileUtils.closeQuietly(in);
         }
+        return releaseVersion;
     }
 
     public static IPartitioner newPartitioner(String partitionerClassName) throws ConfigurationException {
@@ -223,7 +229,8 @@ public class Utils {
             throw new ConfigurationException(
                     String.format("Cannot use abstract class '%s' as %s.", classname, readable));
         } catch (Exception e) {
-            // Catch-all because Class.newInstance() "propagates any exception thrown by the nullary constructor, including a checked exception".
+            // Catch-all because Class.newInstance()
+            // "propagates any exception thrown by the nullary constructor, including a checked exception".
             if (e.getCause() instanceof ConfigurationException)
                 throw (ConfigurationException) e.getCause();
             throw new ConfigurationException(String.format("Error instantiating %s class '%s'.", readable, classname),

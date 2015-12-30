@@ -17,19 +17,14 @@
  */
 package org.lealone.transaction;
 
-import java.util.List;
-import java.util.Set;
+import org.lealone.db.PluggableEngine;
 
-public interface TransactionEngine {
+public interface TransactionEngine extends PluggableEngine {
+
     Transaction beginTransaction(boolean autoCommit);
-
-    void close();
 
     boolean validateTransaction(String localTransactionName);
 
-    void init(Set<String> storageMapNames);
+    boolean supportsMVCC();
 
-    List<Transaction> getOpenTransactions();
-
-    <K, V> void removeMap(TransactionMap<K, V> map);
 }

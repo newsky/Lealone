@@ -21,8 +21,10 @@ set ARG=%1
 
 if /i "%ARG%" == "" goto usage
 if /i "%ARG%" == "-e" goto e
+if /i "%ARG%" == "-es" goto es
 if /i "%ARG%" == "-p" goto p
 if /i "%ARG%" == "-pc" goto pc
+if /i "%ARG%" == "-i" goto i
 if /i "%ARG%" == "-vu" goto vu
 
 goto usage
@@ -31,13 +33,19 @@ goto usage
 echo usage: lealone [options]
 echo    options:
 echo    -e            mvn eclipse:eclipse
+echo    -es           mvn eclipse:eclipse -DdownloadSources=true
 echo    -p            mvn package assembly:assembly -Dmaven.test.skip=true
 echo    -pc           mvn clean package assembly:assembly -Dmaven.test.skip=true
+echo    -i            mvn install -Dmaven.test.skip=true
 echo    -vu version   pom.xml version update
 goto end
 
 :e
 call mvn eclipse:eclipse
+goto end
+
+:es
+call mvn eclipse:eclipse -DdownloadSources=true
 goto end
 
 :p
@@ -46,6 +54,10 @@ goto end
 
 :pc
 call mvn clean package assembly:assembly -Dmaven.test.skip=true
+goto end
+
+:i
+call mvn install -Dmaven.test.skip=true
 goto end
 
 :vu

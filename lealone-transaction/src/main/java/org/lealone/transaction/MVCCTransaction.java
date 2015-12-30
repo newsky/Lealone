@@ -1,13 +1,25 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
- * Initial Developer: H2 Group
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 package org.lealone.transaction;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentSkipListSet;
@@ -16,65 +28,72 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import org.lealone.api.ErrorCode;
-import org.lealone.message.DbException;
+import org.lealone.common.message.DbException;
+import org.lealone.common.util.DataUtils;
+import org.lealone.common.util.New;
+import org.lealone.storage.Storage;
 import org.lealone.storage.StorageMap;
-import org.lealone.type.DataType;
-import org.lealone.util.DataUtils;
-import org.lealone.util.New;
+import org.lealone.storage.type.DataType;
+import org.lealone.storage.type.ObjectDataType;
+import org.lealone.transaction.log.RedoLogValue;
 
-/**
- * A transaction.
- */
 public class MVCCTransaction implements Transaction {
 
     private static final ExecutorService executorService = Executors.newCachedThreadPool();
 
     final MVCCTransactionEngine transactionEngine;
-    final int transactionId;
+    final long transactionId;
     final String transactionName;
 
-    /**
-     * The log id of the last entry in the undo log map.
-     */
-    long logId;
+    int logId;
 
     Validator validator;
 
-    private String name; //用于2pc的事务名，未来会考虑删除，目前实际使用的是Lealone的分布式事务模型
     private int status;
     private boolean autoCommit;
-    private boolean local = true; //默认是true，如果是分布式事务才设为false
+    private boolean local = true; // 默认是true，如果是分布式事务才设为false
 
     private long commitTimestamp;
 
-    private HashMap<String, Long> savepoints;
+    private HashMap<String, Integer> savepoints;
 
-    //协调者或参与者自身的本地事务名
+    // 协调者或参与者自身的本地事务名
     private StringBuilder localTransactionNamesBuilder;
-    //如果本事务是协调者中的事务，那么在此字段中存放其他参与者的本地事务名
+    // 如果本事务是协调者中的事务，那么在此字段中存放其他参与者的本地事务名
     private ConcurrentSkipListSet<String> participantLocalTransactionNames;
     private List<Participant> participants;
 
-    MVCCTransaction(MVCCTransactionEngine engine, int tid, int status, String name, long logId) {
+    LinkedList<LogRecord> logRecords = new LinkedList<>();
+
+    MVCCTransaction(MVCCTransactionEngine engine, long tid) {
         transactionEngine = engine;
         transactionId = tid;
         transactionName = getTransactionName(engine.hostAndPort, tid);
-
-        this.status = status;
-        this.name = name;
-        this.logId = logId;
+        status = MVCCTransaction.STATUS_OPEN;
     }
 
-    @Override
-    public String getName() {
-        return name;
+    static class LogRecord {
+        final String mapName;
+        final Object key;
+        final VersionedValue oldValue;
+        final VersionedValue newValue;
+
+        public LogRecord(String mapName, Object key, VersionedValue oldValue, VersionedValue newValue) {
+            this.mapName = mapName;
+            this.key = key;
+            this.oldValue = oldValue;
+            this.newValue = newValue;
+        }
     }
 
-    @Override
-    public void setName(String name) {
-        checkNotClosed();
-        this.name = name;
-        transactionEngine.storeTransaction(this);
+    void log(String mapName, Object key, VersionedValue oldValue, VersionedValue newValue) {
+        logRecords.add(new LogRecord(mapName, key, oldValue, newValue));
+        logId++;
+    }
+
+    void logUndo() {
+        logRecords.removeLast();
+        --logId;
     }
 
     @Override
@@ -155,16 +174,30 @@ public class MVCCTransaction implements Transaction {
     }
 
     @Override
-    public <K, V> MVCCTransactionMap<K, V> openMap(String name) {
-        return openMap(name, null, null);
+    public <K, V> MVCCTransactionMap<K, V> openMap(String name, Storage storage) {
+        return openMap(name, null, null, storage);
     }
 
     @Override
-    public <K, V> MVCCTransactionMap<K, V> openMap(String name, DataType keyType, DataType valueType) {
+    public <K, V> MVCCTransactionMap<K, V> openMap(String name, DataType keyType, DataType valueType, Storage storage) {
+        return openMap(name, null, keyType, valueType, storage);
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public <K, V> MVCCTransactionMap<K, V> openMap(String name, String mapType, DataType keyType, DataType valueType,
+            Storage storage) {
+        if (keyType == null)
+            keyType = new ObjectDataType();
+        if (valueType == null)
+            valueType = new ObjectDataType();
+
         checkNotClosed();
-        StorageMap<K, VersionedValue> map = transactionEngine.openMap(name, keyType, valueType);
-        int mapId = map.getId();
-        return new MVCCTransactionMap<K, V>(this, map, mapId);
+        valueType = new VersionedValueType(valueType);
+        StorageMap<K, VersionedValue> map = storage.openMap(name, mapType, keyType, valueType, null);
+        transactionEngine.redo(map);
+        transactionEngine.addMap((StorageMap<Object, VersionedValue>) map);
+        return new MVCCTransactionMap<>(this, map);
     }
 
     @Override
@@ -179,18 +212,14 @@ public class MVCCTransaction implements Transaction {
     }
 
     @Override
-    public long getSavepointId() {
+    public int getSavepointId() {
         return logId;
     }
 
-    /**
-     * Commit the transaction. Afterwards, this transaction is closed.
-     */
     @Override
     public void commit() {
         if (local) {
             commitLocal();
-            endTransaction();
         } else
             commit(null);
     }
@@ -206,18 +235,33 @@ public class MVCCTransaction implements Transaction {
         commitLocalAndTransactionStatusTable(allLocalTransactionNames);
         if (futures != null)
             waitFutures(futures);
+    }
 
-        endTransaction();
+    void endTransaction() {
+        savepoints = null;
+        logRecords = null;
+        status = STATUS_CLOSED;
+
+        transactionEngine.currentTransactions.remove(transactionId);
     }
 
     private void commitLocal() {
         checkNotClosed();
-        transactionEngine.commit(this, logId);
+        RedoLogValue v = transactionEngine.getRedoLog(this);
+        transactionEngine.commit(this, v);
     }
 
     private void commitLocalAndTransactionStatusTable(String allLocalTransactionNames) {
-        commitLocal();
-        transactionEngine.commitTransactionStatusTable(this, allLocalTransactionNames);
+        checkNotClosed();
+        RedoLogValue v = transactionEngine.getRedoLog(this);
+        setCommitTimestamp(transactionEngine.nextOddTransactionId());
+        v.transactionName = transactionName;
+        v.allLocalTransactionNames = allLocalTransactionNames;
+        v.commitTimestamp = commitTimestamp;
+        transactionEngine.commit(this, v);
+
+        TransactionStatusTable.put(this, allLocalTransactionNames);
+        TransactionValidator.enqueue(this, allLocalTransactionNames);
     }
 
     private void waitFutures(List<Future<Void>> futures) {
@@ -230,9 +274,8 @@ public class MVCCTransaction implements Transaction {
         }
     }
 
-    private void endTransaction() {
-        savepoints = null;
-        status = STATUS_CLOSED;
+    boolean isLocal() {
+        return transactionId % 2 == 0;
     }
 
     private List<Future<Void>> parallelCommitOrRollback(final String allLocalTransactionNames) {
@@ -253,15 +296,11 @@ public class MVCCTransaction implements Transaction {
         return futures;
     }
 
-    /**
-     * Roll the transaction back. Afterwards, this transaction is closed.
-     */
     @Override
     public void rollback() {
         try {
             checkNotClosed();
-            transactionEngine.rollbackTo(this, logId, 0);
-            transactionEngine.endTransaction(this);
+            rollbackTo(0);
         } finally {
             endTransaction();
         }
@@ -273,11 +312,11 @@ public class MVCCTransaction implements Transaction {
             throw DbException.get(ErrorCode.SAVEPOINT_IS_INVALID_1, name);
         }
 
-        Long savepointId = savepoints.get(name);
+        Integer savepointId = savepoints.get(name);
         if (savepointId == null) {
             throw DbException.get(ErrorCode.SAVEPOINT_IS_INVALID_1, name);
         }
-        long i = savepointId.longValue();
+        int i = savepointId.intValue();
         rollbackToSavepoint(i);
 
         if (savepoints != null) {
@@ -295,16 +334,10 @@ public class MVCCTransaction implements Transaction {
             parallelSavepoint(false, name);
     }
 
-    /**
-     * Roll back to the given savepoint. This is only allowed if the
-     * transaction is open.
-     *
-     * @param savepointId the savepoint id
-     */
     @Override
-    public void rollbackToSavepoint(long savepointId) {
+    public void rollbackToSavepoint(int savepointId) {
         checkNotClosed();
-        transactionEngine.rollbackTo(this, logId, savepointId);
+        rollbackTo(savepointId);
         logId = savepointId;
     }
 
@@ -316,75 +349,30 @@ public class MVCCTransaction implements Transaction {
         this.commitTimestamp = commitTimestamp;
     }
 
-    /**
-     * Create a new savepoint.
-     *
-     * @return the savepoint id
-     */
-    public long setSavepoint() {
-        return logId;
+    private void rollbackTo(long toLogId) {
+        while (--logId >= toLogId) {
+            LogRecord r = logRecords.removeLast();
+            String mapName = r.mapName;
+            StorageMap<Object, VersionedValue> map = transactionEngine.getMap(mapName);
+            if (map != null) {
+                Object key = r.key;
+                VersionedValue oldValue = r.oldValue;
+                if (oldValue == null) {
+                    // this transaction added the value
+                    map.remove(key);
+                } else {
+                    // this transaction updated the value
+                    map.put(key, oldValue);
+                }
+            }
+        }
+
     }
 
-    /**
-     * Add a log entry.
-     *
-     * @param mapId the map id
-     * @param key the key
-     * @param oldValue the old value
-     */
-    void log(int mapId, Object key, Object oldValue) {
-        transactionEngine.log(this, logId, mapId, key, oldValue);
-        // only increment the log id if logging was successful
-        logId++;
-    }
-
-    /**
-     * Remove the last log entry.
-     */
-    void logUndo() {
-        transactionEngine.logUndo(this, --logId);
-    }
-
-    /**
-     * Prepare the transaction. Afterwards, the transaction can only be
-     * committed or rolled back.
-     */
-    @Override
-    public void prepare() {
-        checkNotClosed();
-        status = STATUS_PREPARED;
-        transactionEngine.storeTransaction(this);
-    }
-
-    /**
-     * Get the list of changes, starting with the latest change, up to the
-     * given savepoint (in reverse order than they occurred). The value of
-     * the change is the value before the change was applied.
-     *
-     * @param savepointId the savepoint id, 0 meaning the beginning of the
-     *            transaction
-     * @return the changes
-     */
-    public Iterator<Change> getChanges(long savepointId) {
-        return transactionEngine.getChanges(this, logId, savepointId);
-    }
-
-    /**
-     * Check whether this transaction is open or prepared.
-     */
     void checkNotClosed() {
         if (status == STATUS_CLOSED) {
             throw DataUtils.newIllegalStateException(DataUtils.ERROR_CLOSED, "Transaction is closed");
         }
-    }
-
-    /**
-     * Remove the map.
-     *
-     * @param map the map
-     */
-    public <K, V> void removeMap(MVCCTransactionMap<K, V> map) {
-        transactionEngine.removeMap(map);
     }
 
     @Override
