@@ -21,7 +21,7 @@ import java.io.Reader;
 import java.io.StringWriter;
 import java.io.Writer;
 
-import org.lealone.common.message.DbException;
+import org.lealone.common.exceptions.DbException;
 import org.lealone.db.Constants;
 import org.lealone.db.SysProperties;
 import org.lealone.storage.fs.FileUtils;
@@ -460,4 +460,9 @@ public class IOUtils {
         copyAndClose(in, out);
     }
 
+    public static byte[] toByteArray(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        copy(in, out);
+        return out.toByteArray();
+    }
 }

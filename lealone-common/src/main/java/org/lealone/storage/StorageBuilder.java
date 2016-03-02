@@ -22,7 +22,7 @@ public abstract class StorageBuilder {
 
     public abstract Storage openStorage();
 
-    private StorageBuilder set(String key, Object value) {
+    public StorageBuilder set(String key, Object value) {
         config.put(key, value);
         return this;
     }
@@ -160,6 +160,10 @@ public abstract class StorageBuilder {
 
     public StorageBuilder minFillRate(int minFillRate) {
         return set("minFillRate", minFillRate);
+    }
+
+    public StorageBuilder db(Object db) {
+        return set("db", db);
     }
 
     @Override

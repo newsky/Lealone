@@ -23,19 +23,22 @@ if [ "x$JAVA_HOME" = "x" ]; then
     exit 1;
 fi
 
-LEALONE_MAIN=org.lealone.bootstrap.Lealone
+LEALONE_MAIN=org.lealone.main.Lealone
 
-JAVA_OPTS=-ea
-JAVA_OPTS="$JAVA_OPTS -Xms512M"
-JAVA_OPTS="$JAVA_OPTS -Xmx1G"
-JAVA_OPTS="$JAVA_OPTS -XX:+HeapDumpOnOutOfMemoryError"
-JAVA_OPTS="$JAVA_OPTS -XX:+UseParNewGC"
-JAVA_OPTS="$JAVA_OPTS -XX:+UseConcMarkSweepGC"
-JAVA_OPTS="$JAVA_OPTS -XX:+CMSParallelRemarkEnabled"
-JAVA_OPTS="$JAVA_OPTS -XX:SurvivorRatio=8"
-JAVA_OPTS="$JAVA_OPTS -XX:MaxTenuringThreshold=1"
-JAVA_OPTS="$JAVA_OPTS -XX:CMSInitiatingOccupancyFraction=75"
-JAVA_OPTS="$JAVA_OPTS -XX:+UseCMSInitiatingOccupancyOnly"
+# JAVA_OPTS=-ea
+# JAVA_OPTS="$JAVA_OPTS -Xms10M"
+# JAVA_OPTS="$JAVA_OPTS -Xmx1G"
+# JAVA_OPTS="$JAVA_OPTS -XX:+HeapDumpOnOutOfMemoryError"
+# JAVA_OPTS="$JAVA_OPTS -XX:+UseParNewGC"
+# JAVA_OPTS="$JAVA_OPTS -XX:+UseConcMarkSweepGC"
+# JAVA_OPTS="$JAVA_OPTS -XX:+CMSParallelRemarkEnabled"
+# JAVA_OPTS="$JAVA_OPTS -XX:SurvivorRatio=8"
+# JAVA_OPTS="$JAVA_OPTS -XX:MaxTenuringThreshold=1"
+# JAVA_OPTS="$JAVA_OPTS -XX:CMSInitiatingOccupancyFraction=75"
+# JAVA_OPTS="$JAVA_OPTS -XX:+UseCMSInitiatingOccupancyOnly"
+# JAVA_OPTS="$JAVA_OPTS -Dlogback.configurationFile=logback.xml"
+
+JAVA_OPTS=-Xms10M
 JAVA_OPTS="$JAVA_OPTS -Dlogback.configurationFile=logback.xml"
 
 CLASSPATH=$LEALONE_HOME/conf
@@ -45,7 +48,7 @@ for jar in "$LEALONE_HOME"/lib/*.jar; do
 done
 
 LEALONE_CLASSPATH="$CLASSPATH"
-LEALONE_PARAMS="-Dlealone-foreground=yes -Dlealone.logdir=$LEALONE_HOME/logs"
+LEALONE_PARAMS="-Dlealone.logdir=$LEALONE_HOME/logs"
 # LEALONE_PARAMS="$LEALONE_PARAMS -agentlib:jdwp=transport=dt_socket,address=8000,server=y,suspend=y"
 
 

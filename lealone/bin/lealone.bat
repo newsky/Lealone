@@ -17,25 +17,30 @@
 @echo off
 if "%OS%" == "Windows_NT" setlocal
 
+if NOT DEFINED JAVA_HOME goto :err
+
 pushd %~dp0..
 if NOT DEFINED LEALONE_HOME set LEALONE_HOME=%CD%
 popd
 
-if NOT DEFINED LEALONE_MAIN set LEALONE_MAIN=org.lealone.bootstrap.Lealone
-if NOT DEFINED JAVA_HOME goto :err
+if NOT DEFINED LEALONE_MAIN set LEALONE_MAIN=org.lealone.main.Lealone
+
 
 REM ***** JAVA options *****
-set JAVA_OPTS=-ea^
- -Xms512M^
- -Xmx1G^
- -XX:+HeapDumpOnOutOfMemoryError^
- -XX:+UseParNewGC^
- -XX:+UseConcMarkSweepGC^
- -XX:+CMSParallelRemarkEnabled^
- -XX:SurvivorRatio=8^
- -XX:MaxTenuringThreshold=1^
- -XX:CMSInitiatingOccupancyFraction=75^
- -XX:+UseCMSInitiatingOccupancyOnly^
+REM set JAVA_OPTS=-ea^
+REM  -Xms10M^
+REM  -Xmx1G^
+REM  -XX:+HeapDumpOnOutOfMemoryError^
+REM  -XX:+UseParNewGC^
+REM  -XX:+UseConcMarkSweepGC^
+REM  -XX:+CMSParallelRemarkEnabled^
+REM  -XX:SurvivorRatio=8^
+REM  -XX:MaxTenuringThreshold=1^
+REM  -XX:CMSInitiatingOccupancyFraction=75^
+REM  -XX:+UseCMSInitiatingOccupancyOnly^
+REM  -Dlogback.configurationFile=logback.xml
+
+set JAVA_OPTS=-Xms10M^
  -Dlogback.configurationFile=logback.xml
 
 REM ***** CLASSPATH library setting *****
@@ -53,12 +58,12 @@ goto :eof
 
 :okClasspath
 set LEALONE_CLASSPATH=%CLASSPATH%;
-set LEALONE_PARAMS=-Dlealone-foreground=yes -Dlealone.logdir="%LEALONE_HOME%\logs"
+set LEALONE_PARAMS=-Dlealone.logdir="%LEALONE_HOME%\logs"
 REM set LEALONE_PARAMS=%LEALONE_PARAMS% -agentlib:jdwp=transport=dt_socket,address=8000,server=y,suspend=y
 goto runDaemon
 
 :runDaemon
-echo Starting Lealone Server
+REM echo Starting Lealone Server
 "%JAVA_HOME%\bin\java" %JAVA_OPTS% %LEALONE_PARAMS% -cp %LEALONE_CLASSPATH% "%LEALONE_MAIN%"
 goto finally
 

@@ -9,7 +9,7 @@ package org.lealone.db.table;
 import java.util.ArrayList;
 
 import org.lealone.api.ErrorCode;
-import org.lealone.common.message.DbException;
+import org.lealone.common.exceptions.DbException;
 import org.lealone.common.util.New;
 import org.lealone.common.util.SmallLRUCache;
 import org.lealone.common.util.StatementBuilder;
@@ -100,6 +100,7 @@ public class TableView extends Table {
 
     private static Query compileViewQuery(ServerSession session, String sql) {
         PreparedStatement p = session.prepareStatement(sql);
+        p = p.getWrappedStatement(); // 要看最原始的那条语句的类型
         if (!(p instanceof Query)) {
             throw DbException.getSyntaxError(sql, 0);
         }
@@ -515,15 +516,4 @@ public class TableView extends Table {
         return getName();
     }
 
-    @Override
-    public boolean supportsSharding() {
-        for (Table t : tables) {
-            if (t instanceof TableView) {
-                return ((TableView) t).supportsSharding();
-            } else {
-                return t.supportsSharding();
-            }
-        }
-        return super.supportsSharding();
-    }
 }

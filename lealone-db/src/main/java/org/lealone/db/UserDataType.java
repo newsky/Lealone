@@ -5,10 +5,8 @@
  */
 package org.lealone.db;
 
-import org.lealone.common.message.DbException;
-import org.lealone.common.message.Trace;
+import org.lealone.common.trace.Trace;
 import org.lealone.db.table.Column;
-import org.lealone.db.table.Table;
 
 /**
  * Represents a domain (user-defined data type).
@@ -18,12 +16,17 @@ public class UserDataType extends DbObjectBase {
     private Column column;
 
     public UserDataType(Database database, int id, String name) {
-        initDbObjectBase(database, id, name, Trace.DATABASE);
+        super(database, id, name, Trace.DATABASE);
     }
 
     @Override
-    public String getCreateSQLForCopy(Table table, String quotedName) {
-        throw DbException.throwInternalError();
+    public DbObjectType getType() {
+        return DbObjectType.USER_DATATYPE;
+    }
+
+    @Override
+    public String getCreateSQL() {
+        return "CREATE DOMAIN " + getSQL() + " AS " + column.getCreateSQL();
     }
 
     @Override
@@ -32,27 +35,12 @@ public class UserDataType extends DbObjectBase {
     }
 
     @Override
-    public String getCreateSQL() {
-        return "CREATE DOMAIN " + getSQL() + " AS " + column.getCreateSQL();
-    }
-
-    public Column getColumn() {
-        return column;
-    }
-
-    @Override
-    public int getType() {
-        return DbObject.USER_DATATYPE;
-    }
-
-    @Override
     public void removeChildrenAndResources(ServerSession session) {
         database.removeMeta(session, getId());
     }
 
-    @Override
-    public void checkRename() {
-        // ok
+    public Column getColumn() {
+        return column;
     }
 
     public void setColumn(Column column) {

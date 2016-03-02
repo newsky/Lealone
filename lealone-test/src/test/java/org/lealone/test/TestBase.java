@@ -24,21 +24,32 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.junit.Assert;
+import org.lealone.common.trace.TraceSystem;
 import org.lealone.db.Constants;
 import org.lealone.db.SysProperties;
+import org.lealone.main.config.Config;
+import org.lealone.mvstore.mvcc.log.LogStorage;
 import org.lealone.transaction.TransactionEngine;
 import org.lealone.transaction.TransactionEngineManager;
-import org.lealone.transaction.log.LogStorage;
 
 public class TestBase extends Assert {
-    public static final String DEFAULT_STORAGE_ENGINE_NAME = Constants.DEFAULT_STORAGE_ENGINE_NAME;
+    public static final String DEFAULT_STORAGE_ENGINE_NAME = getDefaultStorageEngineName();
     public static final String TEST_DIR = "." + File.separatorChar + "lealone-test-data" + File.separatorChar + "test";
     public static final String DB_NAME = "test";
 
     public static TransactionEngine te;
 
     static {
+        System.setProperty("java.io.tmpdir", TEST_DIR + File.separatorChar + "tmp");
+        System.setProperty("lealone.lob.client.max.size.memory", "2048");
         SysProperties.setBaseDir(TEST_DIR);
+
+        if (Config.getProperty("default.storage.engine") == null)
+            Config.setProperty("default.storage.engine", getDefaultStorageEngineName());
+    }
+
+    public static String getDefaultStorageEngineName() {
+        return "MVStore";
     }
 
     public static synchronized void initTransactionEngine() {
@@ -54,10 +65,12 @@ public class TestBase extends Assert {
     }
 
     private final Map<String, String> connectionParameters = new HashMap<>();
-    private String storageEngineName = Constants.DEFAULT_STORAGE_ENGINE_NAME;
+    private String storageEngineName = getDefaultStorageEngineName();
     private boolean embedded = false;
     private boolean inMemory = false;
     private boolean mysqlUrlStyle = false;
+    private boolean isReplicaSetMode = false;
+    private boolean ssl = false;
 
     private String host = Constants.DEFAULT_HOST;
     private int port = Constants.DEFAULT_TCP_PORT;
@@ -69,40 +82,66 @@ public class TestBase extends Assert {
         return s.toString();
     }
 
-    public synchronized void addConnectionParameter(String key, String value) {
+    public synchronized TestBase addConnectionParameter(String key, String value) {
         connectionParameters.put(key, value);
+        return this;
     }
 
-    public void setStorageEngineName(String name) {
+    public TestBase enableTrace() {
+        return enableTrace(TraceSystem.INFO);
+    }
+
+    public TestBase enableTrace(int level) {
+        addConnectionParameter("TRACE_LEVEL_SYSTEM_OUT", level + "");
+        return this;
+    }
+
+    public TestBase enableSSL() {
+        ssl = true;
+        return this;
+    }
+
+    public TestBase setStorageEngineName(String name) {
         storageEngineName = name;
+        return this;
     }
 
-    public void setEmbedded(boolean embedded) {
+    public TestBase setEmbedded(boolean embedded) {
         this.embedded = embedded;
+        return this;
     }
 
-    public void setInMemory(boolean inMemory) {
+    public TestBase setReplicaSetMode(boolean isReplicaSetMode) {
+        this.isReplicaSetMode = isReplicaSetMode;
+        return this;
+    }
+
+    public TestBase setInMemory(boolean inMemory) {
         this.inMemory = inMemory;
+        return this;
     }
 
-    public void setMysqlUrlStyle(boolean mysqlUrlStyle) {
+    public TestBase setMysqlUrlStyle(boolean mysqlUrlStyle) {
         this.mysqlUrlStyle = mysqlUrlStyle;
+        return this;
     }
 
     public String getHost() {
         return host;
     }
 
-    public void setHost(String host) {
+    public TestBase setHost(String host) {
         this.host = host;
+        return this;
     }
 
     public int getPort() {
         return port;
     }
 
-    public void setPort(int port) {
+    public TestBase setPort(int port) {
         this.port = port;
+        return this;
     }
 
     public String getHostAndPort() {
@@ -125,7 +164,7 @@ public class TestBase extends Assert {
     }
 
     public synchronized String getURL(String dbName) {
-        // addConnectionParameter("DATABASE_TO_UPPER", "false");
+        addConnectionParameter("DATABASE_TO_UPPER", "false");
         // addConnectionParameter("ALIAS_COLUMN_NAME", "true");
         // addConnectionParameter("IGNORE_UNKNOWN_SETTINGS", "true");
 
@@ -145,7 +184,16 @@ public class TestBase extends Assert {
             if (!inMemory)
                 url.append(TEST_DIR).append('/');
         } else {
-            url.append(Constants.URL_TCP).append("//").append(host).append(':').append(port).append('/');
+            if (isReplicaSetMode)
+                url.append(Constants.URL_RS).append("//").append("127.0.0.1").append(',').append("127.0.0.2")
+                        .append(',').append("127.0.0.3").append('/');
+            else {
+                if (ssl)
+                    url.append(Constants.URL_SSL);
+                else
+                    url.append(Constants.URL_TCP);
+                url.append("//").append(host).append(':').append(port).append('/');
+            }
         }
 
         char firstSeparatorChar = ';';
@@ -165,6 +213,14 @@ public class TestBase extends Assert {
 
     public Connection getConnection() throws Exception {
         return DriverManager.getConnection(getURL());
+    }
+
+    public Connection getConnection(String dbName) throws Exception {
+        return DriverManager.getConnection(getURL(dbName));
+    }
+
+    public Connection getConnection(String user, String password) throws Exception {
+        return DriverManager.getConnection(getURL(user, password));
     }
 
     public static void p(Object o) {
